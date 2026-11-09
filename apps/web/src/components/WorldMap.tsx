@@ -9,6 +9,7 @@ import { NEUTRAL_COLOR, baseStyle, radiusExpression } from '@/lib/mapStyle';
 import { CityPanel } from './CityPanel';
 import { SearchBox } from './SearchBox';
 import { AccountMenu } from './AccountMenu';
+import { AttackOverlay } from './AttackOverlay';
 import { useAuth } from './AuthProvider';
 import { OnboardingModal } from './OnboardingModal';
 
@@ -32,6 +33,7 @@ export default function WorldMap() {
   const { me, status: authStatus } = useAuth();
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [forceOnboarding, setForceOnboarding] = useState(false);
+  const [attacking, setAttacking] = useState<City | null>(null);
 
   /** Applique les propriétaires via feature-state : aucun rechargement de la source GeoJSON. */
   const applyOwners = useCallback((map: maplibregl.Map, state: WorldState) => {
@@ -247,6 +249,18 @@ export default function WorldMap() {
   const owner =
     selected?.ownerFactionId != null ? factionsRef.current.get(selected.ownerFactionId) : undefined;
 
+  // Règles d'affichage du bouton ; le serveur re-vérifie TOUT (faction, ville adverse, cooldown).
+  const myFactionId = me?.faction?.id ?? null;
+  const attackAction = !selected
+    ? { label: 'Attaquer', enabled: false, onClick: () => undefined }
+    : !me?.user
+      ? { label: 'Joue pour attaquer', enabled: true, onClick: () => setForceOnboarding(true) }
+      : myFactionId === null
+        ? { label: 'Rejoins une faction pour attaquer', enabled: false, onClick: () => undefined }
+        : selected.ownerFactionId === myFactionId
+          ? { label: 'Ville de ta faction', enabled: false, onClick: () => undefined }
+          : { label: 'Attaquer', enabled: true, onClick: () => setAttacking(selected) };
+
   return (
     <div className="relative h-full w-full">
       <div className="absolute inset-0">
@@ -304,7 +318,10 @@ export default function WorldMap() {
         </div>
       )}
 
-      {selected && <CityPanel city={selected} owner={owner} onClose={clearSelection} />}
+      {selected && (
+        <CityPanel city={selected} owner={owner} onClose={clearSelection} action={attackAction} />
+      )}
+      {attacking && <AttackOverlay city={attacking} onClose={() => setAttacking(null)} />}
     </div>
   );
 }

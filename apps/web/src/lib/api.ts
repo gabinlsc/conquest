@@ -1,5 +1,7 @@
 import type { FeatureCollection, Point } from 'geojson';
 import type {
+  AttackResult,
+  AttackStartResponse,
   City,
   CityListResponse,
   ClanDetail,
@@ -80,3 +82,12 @@ export const createClan = (input: { name: string; color?: string; open: boolean 
 export const joinClan = (id: number, inviteCode?: string) =>
   request<void>('POST', `/clans/${id}/join`, inviteCode ? { inviteCode } : {});
 export const leaveClan = () => request<{ disbanded: boolean }>('POST', '/clans/leave');
+
+// ---------- Attaques ----------
+
+export const startAttack = (cityId: number) =>
+  request<AttackStartResponse>('POST', '/attacks', { cityId });
+
+/** Envoie la preuve brute (actions du joueur), jamais un score. Idempotent côté serveur : on peut réessayer. */
+export const submitAttack = (attackId: string, input: unknown) =>
+  request<AttackResult>('POST', `/attacks/${attackId}/submit`, { input });

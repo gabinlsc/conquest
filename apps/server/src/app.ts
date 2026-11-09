@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 import type { HealthResponse, ServerEnv } from '@conquest/shared';
 import { AppError } from './http-error';
 import { registerSession } from './plugins/session';
+import { registerAttackRoutes } from './routes/attacks';
 import { registerAuthRoutes } from './routes/auth';
 import { registerClanRoutes } from './routes/clans';
 import type { Db } from './db/pool';
@@ -72,6 +73,7 @@ export async function buildApp(env: ServerEnv, deps: AppDeps): Promise<FastifyIn
       registerCityRoutes(api, deps.db);
       registerAuthRoutes(api, { db: deps.db, env, fetchImpl: deps.fetchImpl ?? fetch });
       registerClanRoutes(api, deps.db);
+      registerAttackRoutes(api, { db: deps.db, env });
       done();
     },
     { prefix: '/api' },

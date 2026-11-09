@@ -110,6 +110,35 @@ export const MIGRATIONS: Migration[] = [
       CREATE UNIQUE INDEX factions_clan_name_idx ON factions (lower(name)) WHERE kind = 'clan';
     `,
   },
+  {
+    id: '003_attacks',
+    sql: `
+      CREATE TABLE attacks (
+        id           uuid PRIMARY KEY,
+        user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        -- Faction du joueur AU MOMENT de l'attaque (il peut en changer ensuite).
+        faction_id   integer REFERENCES factions(id) ON DELETE SET NULL,
+        city_id      integer NOT NULL REFERENCES cities(geonames_id),
+        minigame     text NOT NULL,
+        seed         text NOT NULL,
+        status       text NOT NULL CHECK (status IN ('started', 'submitted', 'abandoned')),
+        score        integer,
+        max_score    integer,
+        validated    boolean,
+        stats        jsonb,
+        -- Drapeaux d'analyse (hard:/soft:) : jamais exposés, servent à la détection d'anomalies.
+        flags        text[] NOT NULL DEFAULT '{}',
+        -- Preuve brute envoyée par le client, conservée pour audit et rejeu.
+        input        jsonb,
+        started_at   timestamptz NOT NULL DEFAULT now(),
+        submitted_at timestamptz
+      );
+      -- Un seul jeu actif par joueur, garanti par la base (pas de course entre deux onglets).
+      CREATE UNIQUE INDEX attacks_one_active_idx ON attacks (user_id) WHERE status = 'started';
+      CREATE INDEX attacks_user_idx ON attacks (user_id, started_at DESC);
+      CREATE INDEX attacks_city_idx ON attacks (city_id, started_at DESC);
+    `,
+  },
 ];
 
 const LOCK_KEY = 727_001; // verrou advisory : un seul process migre à la fois

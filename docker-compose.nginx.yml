@@ -1,0 +1,12 @@
+# Mode « nginx de l'hôte » (activé automatiquement par deploy.sh quand nginx occupe déjà les ports 80/443) :
+# le Caddy intégré n'est pas lancé, et le front / l'API écoutent uniquement sur 127.0.0.1 — c'est le nginx
+# de la machine qui les publie (voir infra/nginx/). Rien n'est exposé directement sur Internet.
+services:
+  caddy:
+    profiles: ['caddy-disabled']
+  web:
+    ports:
+      - '127.0.0.1:${WEB_PORT:-3100}:3000'
+  server:
+    ports:
+      - '127.0.0.1:${API_PORT:-3101}:3001'

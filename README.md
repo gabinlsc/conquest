@@ -40,7 +40,13 @@ curl -fsSL https://raw.githubusercontent.com/gabinlsc/conquest/main/deploy.sh \
   | sudo DOMAIN=conquest.glsc.fr bash
 ```
 
-Idempotent : la même commande met à jour. Si nginx/apache occupe déjà les ports 80/443, ajouter `DISABLE_HOST_WEBSERVER=1`. Les secrets sont générés dans `/opt/conquest/.env` et conservés entre les mises à jour.
+Idempotent : la même commande met à jour. Les secrets sont générés dans `/opt/conquest/.env` et conservés entre les mises à jour.
+
+**Deux modes de reverse proxy, choisis automatiquement :**
+
+- **Caddy intégré** (machine « vierge ») : HTTPS automatique, rien d'autre à faire.
+- **nginx de la machine** (si nginx occupe déjà les ports 80/443, par exemple pour d'autres sites) : le script **ne coupe rien**. Il ajoute un fichier de configuration dédié à ton domaine (`/etc/nginx/sites-available/conquest-<domaine>.conf`), obtient le certificat Let's Encrypt avec certbot (renouvellement automatique, rechargement de nginx inclus), teste la configuration avec `nginx -t` avant de recharger et **annule ses changements en cas d'erreur**. Les conteneurs n'écoutent alors que sur `127.0.0.1` (ports 3100 et 3101). Particularités gérées : WebSocket Socket.IO, compression du GeoJSON, `/metrics` masqué, `X-Forwarded-For` écrasé par l'IP réelle (sinon un client pourrait contourner les limites de débit), IPv6 uniquement si la machine le supporte, syntaxe HTTP/2 selon la version de nginx. Prérequis : l'enregistrement DNS A du domaine doit pointer vers le serveur.
+- Forcer un mode : `PROXY=nginx` ou `PROXY=caddy` ; e-mail de contact pour Let's Encrypt : `ACME_EMAIL=toi@exemple.fr`.
 
 ## Données & API (phase 1)
 

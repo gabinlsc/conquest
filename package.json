@@ -1,0 +1,31 @@
+{
+  "name": "conquest",
+  "private": true,
+  "version": "0.0.0",
+  "description": "CONQUEST — jeu de conquête de territoire massivement multijoueur sur carte du monde",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @conquest/shared build && pnpm -r --parallel --filter @conquest/shared --filter @conquest/server --filter @conquest/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis",
+    "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
+    "ci": "pnpm format:check && pnpm lint && pnpm build && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}

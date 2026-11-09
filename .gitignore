@@ -1,0 +1,11 @@
+node_modules
+dist
+.next
+coverage
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+data/
+.DS_Store
+apps/web/next-env.d.ts

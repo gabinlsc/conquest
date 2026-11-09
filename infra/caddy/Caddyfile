@@ -1,6 +1,11 @@
 {$DOMAIN} {
 	encode zstd gzip
 
+	# Métriques Prometheus : jamais exposées publiquement (Prometheus les lit sur le réseau Docker interne).
+	handle /metrics* {
+		respond "Not found" 404
+	}
+
 	# API REST : le préfixe /api est conservé côté serveur.
 	handle /api/* {
 		reverse_proxy server:3001

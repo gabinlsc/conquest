@@ -5,12 +5,15 @@ import {
   resolveAttack,
   tileOf,
   type AttackEffect,
+  type CityAlert,
   type CityDelta,
   type GameEvent,
+  type Faction,
   type SeasonInfo,
 } from '@conquest/shared';
 import type { Db } from '../db/pool';
 import type { AntiCheatService } from '../anticheat/service';
+import type { Metrics } from '../metrics';
 import type { EventService } from '../events/service';
 import type { LeaderboardService } from '../seasons/leaderboards';
 import type { SeasonService } from '../seasons/service';
@@ -23,12 +26,14 @@ export interface Publisher {
   delta(tile: string, delta: CityDelta): void;
   event(event: GameEvent): void;
   season(info: SeasonInfo, reset: boolean): void;
+  alert(factionId: number, alert: CityAlert): void;
 }
 
 const NOOP_PUBLISHER: Publisher = {
   delta: () => undefined,
   event: () => undefined,
   season: () => undefined,
+  alert: () => undefined,
 };
 
 interface AttackRow {
@@ -48,6 +53,7 @@ interface AttackRow {
   ip_hash: string | null;
   display_name: string | null;
   country_code: string | null;
+  is_bot: boolean;
 }
 
 /**
@@ -69,15 +75,17 @@ export class EffectService {
       leaderboards?: LeaderboardService;
       seasons?: SeasonService;
       anticheat?: AntiCheatService;
+      metrics?: Metrics;
     },
   ) {}
 
   /** Retourne l'effet, ou null s'il est en attente (Redis indisponible) ou sans objet (partie invalide). */
   async applyById(attackId: string): Promise<AttackEffect | null> {
-    const { db, store, geo, factions, events, leaderboards, seasons, anticheat } = this.deps;
+    const { db, store, geo, factions, events, leaderboards, seasons, anticheat, metrics } =
+      this.deps;
     const { rows } = await db.query<AttackRow>(
       `SELECT a.id, a.user_id, a.faction_id, a.city_id, a.minigame, a.score, a.max_score, a.validated, a.status,
-              a.applied_at, a.effect, a.flags, a.fingerprint, a.ip_hash, u.display_name, u.country_code
+              a.applied_at, a.effect, a.flags, a.fingerprint, a.ip_hash, u.display_name, u.country_code, u.is_bot
        FROM attacks a JOIN users u ON u.id = a.user_id WHERE a.id = $1`,
       [attackId],
     );
@@ -90,26 +98,32 @@ export class EffectService {
     const gain = influenceGain(a.score ?? 0, a.max_score ?? 0);
 
     // Analyse anti-triche : un joueur « shadow banni » est jugé comme les autres mais n'agit plus sur le monde.
-    const verdict = anticheat
-      ? await anticheat
-          .assess({
-            attackId,
-            userId: a.user_id,
-            minigame: a.minigame,
-            score: a.score ?? 0,
-            maxScore: a.max_score ?? 0,
-            flags: a.flags,
-            fingerprint: a.fingerprint,
-            ipHash: a.ip_hash,
-          })
-          .catch(() => null)
-      : null;
-    if (verdict?.shadow) return this.applyGhost(a, gain);
+    // Les bots ne sont pas des joueurs : ni analyse anti-triche, ni points de classement.
+    const verdict =
+      anticheat && !a.is_bot
+        ? await anticheat
+            .assess({
+              attackId,
+              userId: a.user_id,
+              minigame: a.minigame,
+              score: a.score ?? 0,
+              maxScore: a.max_score ?? 0,
+              flags: a.flags,
+              fingerprint: a.fingerprint,
+              ipHash: a.ip_hash,
+            })
+            .catch(() => null)
+        : null;
+    if (verdict?.shadow) {
+      metrics?.attack('ghost');
+      return this.applyGhost(a, gain);
+    }
 
     let res;
     try {
       res = await store.applyAttack({ attackId, cityId: a.city_id, factionId: a.faction_id, gain });
     } catch {
+      metrics?.attack('pending');
       return null; // Redis indisponible : l'attaque reste « en attente », le réconciliateur la rejouera
     }
 
@@ -129,7 +143,7 @@ export class EffectService {
     // Points de classement (atomiques et idempotents). Un échec laisse l'attaque « en attente » : rejouée plus tard.
     let points = 0;
     let seasonId: number | null = null;
-    if (leaderboards && seasons) {
+    if (leaderboards && seasons && !a.is_bot) {
       points = attackPoints(gain, res.captured, city.value);
       const season = await seasons.current();
       seasonId = season.id;
@@ -176,8 +190,13 @@ export class EffectService {
       if (recorded) this.publisher.event(recorded);
     }
     if (!res.replay) {
+      metrics?.influencePoints(gain);
+      if (res.captured) metrics?.capture(0);
+      void this.alertDefenders(a, city, res, gain, faction, factions);
       this.publisher.delta(tileOf(city.lon, city.lat), {
         id: city.id,
+        lon: city.lon,
+        lat: city.lat,
         owner: res.owner,
         ver: res.ver,
         inf: res.influence,
@@ -186,6 +205,49 @@ export class EffectService {
       });
     }
     return effect;
+  }
+
+  /**
+   * Prévient la faction attaquée (« ta ville est attaquée / vient de tomber »). Anti-spam : au plus une alerte
+   * de pression toutes les 20 s par ville et par défenseur ; une capture est TOUJOURS signalée.
+   */
+  private async alertDefenders(
+    a: AttackRow,
+    city: { id: number; name: string; lon: number; lat: number },
+    res: { owner: number; prevOwner: number; captured: boolean; defended: boolean },
+    gain: number,
+    attackerOwnerFaction: Faction | null,
+    factions: FactionDirectory,
+  ): Promise<void> {
+    if (res.defended || a.faction_id === null) return;
+    const defender = res.captured ? res.prevOwner : res.owner;
+    if (defender === 0 || defender === a.faction_id) return;
+    const { store, metrics } = this.deps;
+    try {
+      if (!res.captured) {
+        const first = await store.redis.set(`alert:${city.id}:${defender}`, '1', 'EX', 20, 'NX');
+        if (first !== 'OK') {
+          metrics?.alert('throttled');
+          return;
+        }
+      }
+      const by = res.captured ? attackerOwnerFaction : await factions.get(a.faction_id);
+      if (!by) return;
+      this.publisher.alert(defender, {
+        id: `${a.id}`,
+        at: Date.now(),
+        cityId: city.id,
+        cityName: city.name,
+        lon: city.lon,
+        lat: city.lat,
+        captured: res.captured,
+        by,
+        gain,
+      });
+      metrics?.alert('sent');
+    } catch {
+      // une alerte ratée ne doit jamais faire échouer l'attaque
+    }
   }
 
   /**
@@ -258,6 +320,8 @@ export class EffectService {
       if (!c) continue;
       this.publisher.delta(tileOf(c.lon, c.lat), {
         id: cityId,
+        lon: c.lon,
+        lat: c.lat,
         owner,
         ver,
         inf: [],

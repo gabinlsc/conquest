@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
+import { sfx } from '@/lib/sound';
 import { replayClicks, type ReflexInput, type ReflexParams } from '@conquest/shared';
 
 type Click = ReflexInput['clicks'][number];
@@ -38,6 +39,7 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
   const startRef = useRef(0);
   const finishedRef = useRef(false);
   const clicksRef = useRef<Click[]>([]);
+  const comboRef = useRef(0);
   const field = useRef<HTMLDivElement>(null);
 
   // Compte à rebours 3-2-1.
@@ -45,9 +47,11 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
     if (playing) return;
     if (countdown === 0) {
       startRef.current = performance.now();
+      sfx.go();
       setPlaying(true);
       return;
     }
+    sfx.tick();
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [countdown, playing]);
@@ -97,6 +101,14 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
       clicksRef.current = [...clicksRef.current, click];
       setClicks(clicksRef.current);
       const last = replayClicks(params, clicksRef.current).outcomes.at(-1);
+      // Son de feedback immédiat : la note monte avec la série de coups au but.
+      if (last?.targetId != null) {
+        comboRef.current += 1;
+        sfx.hit(comboRef.current);
+      } else {
+        comboRef.current = 0;
+        sfx.miss();
+      }
       setMarks((m) => [
         ...m.filter((k) => t - k.at < MARK_MS),
         {

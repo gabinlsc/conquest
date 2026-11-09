@@ -7,6 +7,7 @@ import { Trophy } from 'lucide-react';
 import {
   tilesForBounds,
   type City,
+  type CityAlert,
   type Faction,
   type GameEvent,
   type SeasonInfo,
@@ -17,6 +18,9 @@ import { NEUTRAL_COLOR, baseStyle, radiusExpression } from '@/lib/mapStyle';
 import { CityPanel } from './CityPanel';
 import { LeaderboardPanel, countdown } from './LeaderboardPanel';
 import { LiveFeed } from './LiveFeed';
+import { SoundToggle } from './SoundToggle';
+import { Toasts } from './Toasts';
+import { sfx, unlockAudio } from '@/lib/sound';
 import { SearchBox } from './SearchBox';
 import { AccountMenu } from './AccountMenu';
 import { AttackOverlay } from './AttackOverlay';
@@ -52,6 +56,10 @@ export default function WorldMap() {
   const [attacking, setAttacking] = useState<City | null>(null);
   const [showBoard, setShowBoard] = useState(false);
   const [season, setSeason] = useState<SeasonInfo | null>(null);
+  const [alerts, setAlerts] = useState<CityAlert[]>([]);
+  const rtRef = useRef<RealtimeSocket | null>(null);
+  const myFactionRef = useRef<number | null>(null);
+  const lastUserRef = useRef<string | null | undefined>(undefined);
   const [seasonBanner, setSeasonBanner] = useState<string | null>(null);
 
   const select = useCallback(async (id: number, fly = false) => {
@@ -113,6 +121,50 @@ export default function WorldMap() {
 
     // ---- Temps réel : abonnements par tuile (zone visible) + flux d'événements ----
     const rt: RealtimeSocket = createRealtime();
+    rtRef.current = rt;
+
+    // ---- Vagues de capture : anneaux concentriques animés autour de la ville (source GeoJSON dédiée,
+    // une seule mise à jour de données par image ; aucun élément DOM). Désactivées si « moins d'animations ». ----
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    interface Wave {
+      lon: number;
+      lat: number;
+      color: string;
+      t0: number;
+      max: number;
+    }
+    const waves: Wave[] = [];
+    let waveRaf = 0;
+    const WAVE_MS = 1_500;
+    const stepWaves = (now: number) => {
+      const alive = waves.filter((w) => now - w.t0 < WAVE_MS);
+      waves.length = 0;
+      waves.push(...alive);
+      const src = map.getSource<maplibregl.GeoJSONSource>('waves');
+      void src?.setData({
+        type: 'FeatureCollection',
+        features: alive
+          .filter((w) => now >= w.t0)
+          .map((w) => {
+            const p = (now - w.t0) / WAVE_MS;
+            const ease = 1 - (1 - p) ** 3;
+            return {
+              type: 'Feature' as const,
+              properties: { r: 6 + ease * w.max, o: 1 - p, w: 6 * (1 - p) + 1, c: w.color },
+              geometry: { type: 'Point' as const, coordinates: [w.lon, w.lat] },
+            };
+          }),
+      });
+      waveRaf = alive.length > 0 ? requestAnimationFrame(stepWaves) : 0;
+    };
+    const spawnWave = (lon: number, lat: number, color: string, big: boolean) => {
+      if (reduceMotion || !map.getBounds().contains([lon, lat])) return;
+      const t = performance.now();
+      const rings = big ? 3 : 1;
+      for (let i = 0; i < rings; i++)
+        waves.push({ lon, lat, color, t0: t + i * 220, max: big ? 150 : 60 });
+      if (!waveRaf) waveRaf = requestAnimationFrame(stepWaves);
+    };
     let sourceReady = false;
     let tilesKey = '';
 
@@ -155,11 +207,39 @@ export default function WorldMap() {
     });
     rt.on('delta', (d) => {
       if (d.faction) factionsRef.current.set(d.faction.id, d.faction);
+      const previous = knownRef.current.get(d.id);
       applyEntry(d.id, d.owner, d.ver);
+      if (previous && d.ver > previous.ver) {
+        const changedHands = previous.owner !== d.owner;
+        const color = (changedHands && d.faction?.color) || '#111111';
+        spawnWave(d.lon, d.lat, color, changedHands);
+        if (changedHands && map.getBounds().contains([d.lon, d.lat])) {
+          // Ma faction vient de prendre une ville visible : petite fanfare ; sinon un bruit de vague discret.
+          if (d.owner === myFactionRef.current) sfx.capture();
+          else sfx.wave();
+        }
+      }
       if (selectedRef.current === d.id) refreshSelected(d.id);
     });
-    rt.on('event', (e) =>
-      setEvents((prev) => [e, ...prev.filter((x) => x.id !== e.id)].slice(0, 20)),
+    rt.on('alert', (a) => {
+      setAlerts((prev) => [a, ...prev.filter((x) => x.id !== a.id)].slice(0, 5));
+      sfx.alert();
+      // Onglet en arrière-plan : notification native du navigateur (si le joueur l'a autorisée).
+      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification(
+          a.captured ? `${a.cityName} est tombée !` : `${a.cityName} est attaquée !`,
+          {
+            body: `${a.by.name}${a.captured ? ' a capturé la ville.' : ` attaque (+${a.gain}).`}`,
+            tag: `conquest-${a.cityId}`,
+          },
+        );
+      }
+    });
+    rt.on('events', (list) =>
+      setEvents((prev) => {
+        const ids = new Set(list.map((x) => x.id));
+        return [...[...list].reverse(), ...prev.filter((x) => !ids.has(x.id))].slice(0, 20);
+      }),
     );
     rt.on('feed:init', (list) => setEvents(list));
     rt.on('presence', (p) => setOnline(p.online));
@@ -279,6 +359,36 @@ export default function WorldMap() {
             },
           });
 
+          map.addSource('waves', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+          });
+          map.addLayer({
+            id: 'wave-fill',
+            type: 'circle',
+            source: 'waves',
+            paint: {
+              'circle-radius': ['get', 'r'],
+              'circle-color': ['get', 'c'],
+              'circle-opacity': ['*', ['get', 'o'], 0.22],
+              'circle-pitch-alignment': 'map',
+            },
+          });
+          map.addLayer({
+            id: 'wave-ring',
+            type: 'circle',
+            source: 'waves',
+            paint: {
+              'circle-radius': ['get', 'r'],
+              'circle-color': '#000000',
+              'circle-opacity': 0,
+              'circle-stroke-color': ['get', 'c'],
+              'circle-stroke-width': ['get', 'w'],
+              'circle-stroke-opacity': ['get', 'o'],
+              'circle-pitch-alignment': 'map',
+            },
+          });
+
           setCounts({ cities: geojson.features.length });
           setStatus('ready');
           sourceReady = true;
@@ -330,6 +440,8 @@ export default function WorldMap() {
 
     return () => {
       abort.abort();
+      cancelAnimationFrame(waveRaf);
+      rtRef.current = null;
       clearTimeout(moveTimer);
       rt.close();
       knownRef.current.clear();
@@ -339,6 +451,33 @@ export default function WorldMap() {
       selectedRef.current = null;
     };
   }, [select, clearSelection, refreshSelected, attempt]);
+
+  // Débloque l'audio au premier geste (les navigateurs interdisent le son avant toute interaction).
+  useEffect(() => {
+    window.addEventListener('pointerdown', unlockAudio, { once: true });
+    return () => window.removeEventListener('pointerdown', unlockAudio);
+  }, []);
+
+  // La connexion temps réel porte le cookie de session : quand le joueur change (invité créé, connexion, déconnexion),
+  // on se reconnecte pour qu'elle soit authentifiée (nécessaire aux alertes) ; quand seule sa faction change
+  // (clan rejoint/quitté, nouveau pays), un simple « faction:refresh » suffit.
+  const userId = me?.user?.id ?? null;
+  const factionId = me?.faction?.id ?? null;
+  useEffect(() => {
+    myFactionRef.current = factionId;
+    if (authStatus !== 'ready') return;
+    const rt = rtRef.current;
+    if (lastUserRef.current === undefined) {
+      lastUserRef.current = userId;
+      return;
+    }
+    if (lastUserRef.current !== userId) {
+      lastUserRef.current = userId;
+      rt?.disconnect().connect();
+    } else {
+      rt?.emit('faction:refresh');
+    }
+  }, [authStatus, userId, factionId]);
 
   // Rafraîchit les « il y a X s » du flux.
   useEffect(() => {
@@ -414,6 +553,7 @@ export default function WorldMap() {
       </header>
 
       <div className="absolute right-4 top-4 z-20 flex items-start gap-2">
+        <SoundToggle />
         <button
           onClick={() => setShowBoard((v) => !v)}
           className="btn btn-lilac"
@@ -472,6 +612,14 @@ export default function WorldMap() {
         status={conn}
         now={now}
         onPick={(e: GameEvent) => void select(e.cityId, true)}
+      />
+      <Toasts
+        alerts={alerts}
+        onDismiss={(id) => setAlerts((prev) => prev.filter((a) => a.id !== id))}
+        onView={(a) => {
+          setAlerts((prev) => prev.filter((x) => x.id !== a.id));
+          void select(a.cityId, true);
+        }}
       />
       {attacking && <AttackOverlay city={attacking} onClose={() => setAttacking(null)} />}
     </div>

@@ -243,7 +243,7 @@ describe.skipIf(!dbUrl || !redisUrl)('monde temps réel', () => {
   }
   const waitFor = <T>(
     s: ClientSocket,
-    event: 'delta' | 'tiles' | 'event' | 'presence' | 'feed:init',
+    event: 'delta' | 'tiles' | 'presence' | 'feed:init',
     pick?: (v: T) => boolean,
   ) =>
     new Promise<T>((resolve, reject) => {
@@ -255,6 +255,19 @@ describe.skipIf(!dbUrl || !redisUrl)('monde temps réel', () => {
         resolve(v);
       };
       (s as Socket).on(event, handler);
+    });
+  /** Attend un événement du flux (livré par lots) satisfaisant `pick`. */
+  const waitEvent = (s: ClientSocket, pick: (e: GameEvent) => boolean) =>
+    new Promise<GameEvent>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('délai dépassé : events')), 4000);
+      const handler = (list: GameEvent[]) => {
+        const hit = list.find(pick);
+        if (!hit) return;
+        clearTimeout(timer);
+        (s as Socket).off('events', handler);
+        resolve(hit);
+      };
+      (s as Socket).on('events', handler);
     });
   const subscribe = (s: ClientSocket, tiles: string[]) =>
     new Promise<string[]>((resolve) => s.emit('sub', tiles, (r) => resolve(r.tiles)));
@@ -416,7 +429,7 @@ describe.skipIf(!dbUrl || !redisUrl)('monde temps réel', () => {
       await world.store.redis.del(K.city(PARIS));
       await world.store.redis.hset(K.owners, PARIS, await factionId('FR'));
       const spectator = await client(); // aucun cookie
-      const ev = waitFor<GameEvent>(spectator, 'event', (e) => e.cityId === PARIS);
+      const ev = waitEvent(spectator, (e) => e.cityId === PARIS);
       const attackers = await Promise.all([
         newPlayer('DE'),
         newPlayer('DE'),

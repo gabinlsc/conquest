@@ -22,14 +22,43 @@ die() { printf '\033[1;31m[conquest] ERREUR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "À lancer en root (sudo)."
 
-compose() { (cd "$INSTALL_DIR" && docker compose "$@"); }
+compose() {
+  # Supervision optionnelle : activée par MONITORING=1 dans .env.
+  local files=(-f docker-compose.yml)
+  if [ -f "$INSTALL_DIR/.env" ] && grep -q '^MONITORING=1' "$INSTALL_DIR/.env"; then
+    files+=(-f docker-compose.monitoring.yml)
+  fi
+  (cd "$INSTALL_DIR" && docker compose "${files[@]}" "$@")
+}
+
+# Écrit ou remplace KEY=VALUE dans .env (valeur échappée pour sed).
+set_env() {
+  local k="$1" v="$2" f="$INSTALL_DIR/.env" esc
+  esc=$(printf '%s' "$v" | sed -e 's/[\\&|]/\\&/g')
+  if grep -q "^${k}=" "$f"; then sed -i "s|^${k}=.*|${k}=${esc}|" "$f"; else printf '%s=%s\n' "$k" "$v" >>"$f"; fi
+}
 
 case "$CMD" in
   status) compose ps; exit 0 ;;
   logs) compose logs -f --tail=100; exit 0 ;;
   down) compose down; exit 0 ;;
+  # Revue anti-triche : ... | sudo bash -s -- anticheat report   |   anticheat unban <userId>
+  anticheat) shift; compose exec -T server node dist/cli/anticheat.js "$@"; exit 0 ;;
+  # Modifie la configuration puis redémarre le serveur :
+  #   ... | sudo bash -s -- env GOOGLE_CLIENT_ID=xxx GOOGLE_CLIENT_SECRET=yyy BOTS_ENABLED=false
+  env)
+    shift
+    [ "$#" -gt 0 ] || die "usage : env CLE=VALEUR [CLE=VALEUR ...]"
+    [ -f "$INSTALL_DIR/.env" ] || die "Pas encore déployé : lance d'abord le déploiement."
+    for kv in "$@"; do
+      case "$kv" in *=*) set_env "${kv%%=*}" "${kv#*=}" ;; *) die "Format attendu CLE=VALEUR : $kv" ;; esac
+    done
+    compose up -d --force-recreate server
+    log "Configuration mise à jour, serveur redémarré."
+    exit 0
+    ;;
   deploy) ;;
-  *) die "Commande inconnue : $CMD (deploy|status|logs|down)" ;;
+  *) die "Commande inconnue : $CMD (deploy|status|logs|down|env|anticheat)" ;;
 esac
 
 # ---------- 1. Paquets de base + Docker ----------
@@ -100,17 +129,29 @@ POSTGRES_USER=conquest
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 POSTGRES_DB=conquest
 REDIS_PASSWORD=$(openssl rand -hex 24)
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-DISCORD_CLIENT_ID=
-DISCORD_CLIENT_SECRET=
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
+SEASON_WEEKS=${SEASON_WEEKS:-4}
+BOTS_ENABLED=${BOTS_ENABLED:-true}
+MONITORING=${MONITORING:-0}
+GRAFANA_PASSWORD=$(openssl rand -hex 12)
 EOF
   umask 022
 else
   log "$ENV_FILE existant conservé (secrets inchangés)."
   if [ -n "${DOMAIN:-}" ]; then
-    sed -i "s|^DOMAIN=.*|DOMAIN=$DOMAIN|" "$ENV_FILE"
+    set_env DOMAIN "$DOMAIN"
   fi
+  # Options passées à la volée (ex. clés OAuth ajoutées plus tard) : appliquées sans toucher aux secrets existants.
+  for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SEASON_WEEKS BOTS_ENABLED MONITORING; do
+    if [ -n "${!key:-}" ]; then set_env "$key" "${!key}"; fi
+  done
+fi
+# Grafana a besoin d'un mot de passe dès que la supervision est active (généré si absent).
+if grep -q '^MONITORING=1' "$ENV_FILE" && ! grep -q '^GRAFANA_PASSWORD=.' "$ENV_FILE"; then
+  set_env GRAFANA_PASSWORD "$(openssl rand -hex 12)"
 fi
 
 # ---------- 6. Build + démarrage ----------
@@ -132,4 +173,13 @@ compose ps
 
 DOMAIN_FINAL="$(grep '^DOMAIN=' "$ENV_FILE" | cut -d= -f2)"
 log "Terminé → https://$DOMAIN_FINAL  (certificat HTTPS émis automatiquement par Caddy au premier accès)"
+if ! grep -q '^GOOGLE_CLIENT_ID=.' "$ENV_FILE" && ! grep -q '^DISCORD_CLIENT_ID=.' "$ENV_FILE"; then
+  log "OAuth non configuré (connexion invité seule). URL de callback à déclarer chez Google / Discord :"
+  log "  https://$DOMAIN_FINAL/api/auth/oauth/google/callback"
+  log "  https://$DOMAIN_FINAL/api/auth/oauth/discord/callback"
+  log "puis : ... | sudo bash -s -- env GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=…"
+fi
+if grep -q '^MONITORING=1' "$ENV_FILE"; then
+  log "Grafana : ssh -L 3030:127.0.0.1:3030 <utilisateur>@<serveur> puis http://localhost:3030 (admin / $(grep '^GRAFANA_PASSWORD=' "$ENV_FILE" | cut -d= -f2))"
+fi
 docker image prune -f >/dev/null 2>&1 || true

@@ -4,6 +4,7 @@ import { Server, type Socket } from 'socket.io';
 import {
   MAX_TILES_PER_SOCKET,
   isTileKey,
+  type CityAlert,
   type CityDelta,
   type ClientToServerEvents,
   type Faction,
@@ -22,6 +23,8 @@ import type { WorldStore } from '../world/store';
 
 interface SocketData {
   userId: string | null;
+  /** Faction du joueur connecté (room d'alertes `f:<id>`). */
+  factionId: number | null;
   tiles: Set<string>;
   /** Jetons de rate limiting des messages `sub`. */
   tokens: number;
@@ -86,15 +89,30 @@ export function attachGateway(
     socket.data.tokens = SUB_BURST;
     socket.data.refillAt = Date.now();
     socket.data.userId = null;
+    socket.data.factionId = null;
     if (!token) return next();
     resolveSession(db, token).then(
-      (s) => {
+      async (s) => {
         socket.data.userId = s?.userId ?? null;
+        socket.data.factionId = s ? await factionOf(s.userId) : null;
         next();
       },
       () => next(), // base indisponible : on laisse regarder la carte en anonyme
     );
   });
+
+  /** Faction courante d'un joueur (pays ou clan), null s'il n'en a pas. */
+  async function factionOf(userId: string): Promise<number | null> {
+    try {
+      const { rows } = await db.query<{ faction_id: number }>(
+        'SELECT faction_id FROM faction_members WHERE user_id = $1',
+        [userId],
+      );
+      return rows[0]?.faction_id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   const takeToken = (socket: GameSocket): boolean => {
     const d = socket.data;
@@ -123,11 +141,25 @@ export function attachGateway(
 
   io.on('connection', (socket: GameSocket) => {
     void socket.join('feed');
+    if (socket.data.factionId !== null) void socket.join(`f:${socket.data.factionId}`);
     events
       .recent(20)
       .then((list) => socket.emit('feed:init', list))
       .catch(() => undefined);
     socket.emit('presence', { online: io.engine.clientsCount });
+
+    // Le joueur vient de changer de faction (clan, pays) : ses alertes suivent sa nouvelle faction.
+    socket.on('faction:refresh', () => {
+      const userId = socket.data.userId;
+      if (!userId || !takeToken(socket)) return;
+      void factionOf(userId).then((next) => {
+        const prev = socket.data.factionId;
+        if (prev === next) return;
+        if (prev !== null) void socket.leave(`f:${prev}`);
+        if (next !== null) void socket.join(`f:${next}`);
+        socket.data.factionId = next;
+      });
+    });
 
     socket.on('sub', (raw, ack) => {
       if (!takeToken(socket)) return ack?.({ tiles: [...socket.data.tiles] });
@@ -160,6 +192,19 @@ export function attachGateway(
     });
   });
 
+  // Flux d'événements : regroupés par lots de 200 ms. Chaque capture serait sinon un message par client connecté
+  // (1 000 clients x 25 captures/s = 25 000 écritures/s en rafale) ; un lot coûte une seule écriture par client.
+  let feedBatch: GameEvent[] = [];
+  let feedTimer: ReturnType<typeof setTimeout> | null = null;
+  const FEED_BATCH_MS = 200;
+  const flushFeed = () => {
+    feedTimer = null;
+    if (feedBatch.length === 0) return;
+    const batch = feedBatch;
+    feedBatch = [];
+    io.to('feed').emit('events', batch);
+  };
+
   const presence = setInterval(
     () => io.emit('presence', { online: io.engine.clientsCount }),
     deps.presenceIntervalMs ?? 5_000,
@@ -170,10 +215,19 @@ export function attachGateway(
     io,
     online: () => io.engine.clientsCount,
     delta: (tile: string, d: CityDelta) => void io.to(room(tile)).emit('delta', d),
-    event: (e: GameEvent) => void io.to('feed').emit('event', e),
+    event: (e: GameEvent) => {
+      feedBatch.push(e);
+      if (!feedTimer) {
+        feedTimer = setTimeout(flushFeed, FEED_BATCH_MS);
+        feedTimer.unref();
+      }
+    },
     season: (season: SeasonInfo, reset: boolean) => void io.emit('season', { season, reset }),
+    alert: (factionId: number, alert: CityAlert) =>
+      void io.to(`f:${factionId}`).emit('alert', alert),
     close: async () => {
       clearInterval(presence);
+      if (feedTimer) clearTimeout(feedTimer);
       await io.close();
     },
   };

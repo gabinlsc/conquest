@@ -1,4 +1,5 @@
 import type { Db } from '../db/pool';
+import type { Metrics } from '../metrics';
 import type { Redis } from '../world/redis';
 import {
   SHADOW_BAN_THRESHOLD,
@@ -45,6 +46,7 @@ export class AntiCheatService {
   constructor(
     private readonly db: Db,
     private readonly redis: Redis | null,
+    private readonly metrics?: Metrics,
   ) {}
 
   async assess(a: AssessInput): Promise<Verdict> {
@@ -89,6 +91,7 @@ export class AntiCheatService {
       ]);
     }
 
+    for (const f of flags) this.metrics?.flag(f);
     const { total, reasons } = weightOf(flags);
     if (total === 0) return this.currentState(a.userId);
 

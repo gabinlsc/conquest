@@ -1,0 +1,37 @@
+# Supervision optionnelle (Prometheus + Grafana). Activée par `MONITORING=1` dans .env (voir deploy.sh) ou :
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+# Rien n'est exposé sur Internet : Grafana n'écoute que sur 127.0.0.1:3030 (accès par tunnel SSH :
+#   ssh -L 3030:127.0.0.1:3030 utilisateur@serveur  puis  http://localhost:3030).
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    depends_on:
+      - server
+
+  grafana:
+    image: grafana/grafana-oss:11.3.0
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?définir GRAFANA_PASSWORD dans .env}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+    ports:
+      - '127.0.0.1:3030:3000'
+    volumes:
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+
+volumes:
+  promdata:
+  grafanadata:

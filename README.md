@@ -76,7 +76,7 @@ Idempotent : la même commande met à jour. Si nginx/apache occupe déjà les po
 - **Persistance** : write-behind Redis → Postgres toutes les 2 s (villes modifiées uniquement), vidange à l'arrêt, ré-hydratation automatique si Redis est vide (les versions repartent au-dessus du maximum connu).
 - **Mode dégradé** : si Redis tombe, l'API reste lisible (copie Postgres), les parties sont scorées et enregistrées, leur effet est mis « en attente » puis rejoué automatiquement au retour de Redis (`/api/health` passe en `degraded`).
 - **Flux d'événements** : captures persistées (table `events`, une par attaque) et diffusées à tous, `GET /api/events` pour l'historique.
-- **Test de charge** : `pnpm --filter @conquest/server loadtest -- --base http://localhost:3001 --players 1000 --attackers 300` (comptes, sockets, vraies parties, mesure de la latence de diffusion). Résultat de référence en local (1 000 sockets, 300 parties) : connexion p95 ≈ 300 ms, soumission p95 ≈ 13 ms, latence des deltas p95 ≈ 24 ms, 0 erreur.
+- **Test de charge** : `pnpm --filter @conquest/server loadtest -- --base http://localhost:3001 --players 1000 --attackers 300` (comptes, sockets, vraies parties, mesure de la latence de diffusion). Résultats de référence en local (4 cœurs, tout sur la même machine), 1 000 sockets, 300 parties : connexion p95 ≈ 300 ms, soumission p95 ≈ 20-70 ms, 0 erreur. La latence de diffusion est mesurée par un processus sonde séparé : ≈ 6 ms (p95) en régime normal ; sous rafale extrême (300 parties soumises en 3 s, ≈ 25 captures/s) médiane ≈ 60 ms, p95 ≈ 1,2 s. Le flux d'événements est regroupé par lots de 200 ms pour cette raison (une écriture par client et par lot, au lieu d'une par capture).
 
 ## Classements, saisons, anti-triche (phase 5)
 
@@ -89,3 +89,34 @@ Idempotent : la même commande met à jour. Si nginx/apache occupe déjà les po
 ## Style
 
 L'interface reprend le design de glsc.fr : fond crème pointillé, contours noirs de 3 px, ombres dures décalées, pastels (banane, menthe, corail, ciel, pêche, lilas), titres en Fredoka et texte en Space Grotesk (auto-hébergées, licence OFL). Les jetons sont dans `apps/web/tailwind.config.ts` et les classes réutilisables (`card`, `btn`, `pill`, `field`) dans `apps/web/src/app/globals.css`. La carte reprend l'habillage : mer bleu ciel, terres crème, contours noirs.
+
+## Finitions, bots, métriques, OAuth (phase 6)
+
+**Effets et alertes**
+
+- **Vagues de capture** : des anneaux concentriques, aux couleurs de la faction conquérante, s'étendent autour de la ville (une source GeoJSON dédiée mise à jour à chaque image, aucun élément DOM). Confettis à l'écran de résultat quand on capture. Désactivés si le système demande moins d'animations.
+- **Sons** synthétisés avec Web Audio (aucun fichier à charger) : coups au but (la note monte avec la série), ratés, compte à rebours, fanfare de capture, alerte. Bouton muet mémorisé.
+- **Alertes « ta ville est attaquée »** : les membres de la faction attaquée reçoivent une alerte temps réel (toast + son, notification native du navigateur si l'onglet est en arrière-plan et si autorisée). Anti-spam : une alerte de pression par ville et par défenseur toutes les 20 s ; une capture est toujours signalée. L'alerte suit le joueur quand sa faction change.
+
+**Bots d'animation** (`BOTS_ENABLED=true`, activé par défaut en production) : 40 comptes marqués `is_bot` répartis sur les pays les plus riches en villes, qui mènent des « guerres de frontière » et défendent leur territoire. Même chemin que les joueurs (Lua atomique, flux, deltas, alertes) mais pas de mini-jeu, aucun point de classement, aucune analyse anti-triche. Pause automatique au-delà de `BOT_MAX_ONLINE` (20) connectés et pendant un changement de saison.
+
+**Métriques** : `/metrics` au format Prometheus (trafic par route, parties par issue, captures, alertes, drapeaux anti-triche, bots, joueurs connectés, état de Redis, écritures en attente, saison, CPU/mémoire/boucle d'événements). Accessible uniquement depuis le réseau privé (ou avec `METRICS_TOKEN`), jamais exposé par Caddy. Supervision optionnelle : `MONITORING=1` lance Prometheus + Grafana (dashboard fourni dans `infra/monitoring/`), Grafana n'écoute que sur `127.0.0.1:3030` (tunnel SSH). Les journaux sont du JSON structuré (pino), avec masquage des cookies et en-têtes d'autorisation.
+
+**Commandes `deploy.sh`**
+
+```bash
+# mise à jour / premier déploiement
+curl -fsSL https://raw.githubusercontent.com/gabinlsc/conquest/main/deploy.sh | sudo DOMAIN=conquest.glsc.fr bash
+# changer la configuration (redémarre le serveur) : clés OAuth, bots, durée de saison…
+curl -fsSL .../deploy.sh | sudo bash -s -- env GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… BOTS_ENABLED=false
+# supervision, revue anti-triche, état, journaux
+curl -fsSL .../deploy.sh | sudo MONITORING=1 bash
+curl -fsSL .../deploy.sh | sudo bash -s -- anticheat report
+curl -fsSL .../deploy.sh | sudo bash -s -- status | logs | down
+```
+
+**Activer l'OAuth**
+
+1. Google : console Google Cloud → API et services → Identifiants → ID client OAuth (application Web). Discord : portail développeur → Application → OAuth2.
+2. URI de redirection à déclarer : `https://conquest.glsc.fr/api/auth/oauth/google/callback` et `https://conquest.glsc.fr/api/auth/oauth/discord/callback`.
+3. `deploy.sh env GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=…` : les boutons apparaissent automatiquement pour chaque fournisseur configuré. Les deux flux (Authorization Code + PKCE, `state` signé) sont testés de bout en bout avec un faux fournisseur ; seule la connexion réelle à Google/Discord ne l'a pas été, faute de clés.

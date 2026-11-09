@@ -8,6 +8,7 @@
  * Aucune dépendance en plus : fetch (Node 22) + socket.io-client (déjà présent). Les joueurs sont
  * « humains » côté serveur (réactions 300-420 ms) : le but est de mesurer la capacité, pas de tricher.
  */
+import { fork } from 'node:child_process';
 import { io } from 'socket.io-client';
 
 const arg = (name, def) => {
@@ -15,6 +16,33 @@ const arg = (name, def) => {
   return i > 0 ? process.argv[i + 1] : def;
 };
 const BASE = arg('base', 'http://localhost:3001');
+
+// ---------- Mode sonde (processus enfant) ----------
+// La latence de diffusion est mesurée par un PROCESSUS À PART, avec quelques sockets seulement : le processus
+// principal, qui absorbe les messages de 1 000 sockets, serait lui-même saturé et fausserait la mesure.
+if (process.argv.includes('--probe-child')) {
+  const tiles = arg('tiles', '').split(',').filter(Boolean);
+  const latencies = [];
+  const timeline = [];
+  const sockets = Array.from({ length: 20 }, () => {
+    const s = io(BASE, { path: '/ws', transports: ['websocket'], reconnection: false });
+    s.on('connect', () => s.emit('sub', tiles));
+    s.on('delta', (d) => {
+      latencies.push(Date.now() - d.at);
+      timeline.push([Date.now(), Date.now() - d.at]);
+    });
+    return s;
+  });
+  process.on('message', (m) => {
+    if (m === 'stop') {
+      process.send?.({ latencies, timeline });
+      sockets.forEach((x) => x.close());
+      setTimeout(() => process.exit(0), 100);
+    }
+  });
+  process.send?.('ready');
+  await new Promise(() => {}); // vit jusqu'au message 'stop'
+}
 const PLAYERS = Number(arg('players', 1000));
 const ATTACKERS = Math.min(PLAYERS, Number(arg('attackers', 300)));
 const CONCURRENCY = Number(arg('concurrency', 60));
@@ -79,6 +107,16 @@ const countries = (await (await fetch(`${BASE}/api/countries`)).json())
   .slice(0, 40);
 const targetTiles = [...new Set(top.map((c) => tileOf(c.lon, c.lat)))];
 
+// Sonde de latence dans un processus séparé, abonnée aux zones les plus actives.
+const probe = fork(new URL(import.meta.url).pathname, [
+  '--probe-child',
+  '--base',
+  BASE,
+  '--tiles',
+  targetTiles.slice(0, 6).join(','),
+]);
+await new Promise((resolve) => probe.once('message', resolve));
+
 const players = Array.from({ length: PLAYERS }, (_, i) => ({
   i,
   ip: `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${(i & 255) + 1}`,
@@ -100,8 +138,7 @@ console.log(`comptes   : ${fmt(tGuest)}`);
 
 // ---------- 2. connexions temps réel + abonnements ----------
 const tConnect = [],
-  tSnap = [],
-  deltaLatency = [];
+  tSnap = [];
 let deltas = 0,
   events = 0,
   snapshots = 0;
@@ -121,11 +158,10 @@ await pool(
       reconnection: false,
     });
     p.socket = s;
-    s.on('delta', (d) => {
+    s.on('delta', () => {
       deltas++;
-      deltaLatency.push(Date.now() - d.at);
     });
-    s.on('event', () => events++);
+    s.on('events', (list) => (events += list.length));
     let snapAt = 0;
     s.on('tiles', () => {
       snapshots++;
@@ -209,7 +245,25 @@ console.log(
 console.log(
   `diffusion : ${deltas} deltas reçus (${(deltas / Math.max(1, players.length)).toFixed(1)}/client), ${events} événements, ${snapshots} instantanés`,
 );
-if (deltaLatency.length) console.log(`latence delta (serveur -> client) : ${fmt(deltaLatency)}`);
+const probeResult = await new Promise((resolve) => {
+  probe.once('message', resolve);
+  probe.send('stop');
+  setTimeout(() => resolve({ latencies: [] }), 5000);
+});
+if (process.argv.includes('--timeline') && probeResult.timeline?.length) {
+  const t0 = probeResult.timeline[0][0];
+  const buckets = {};
+  for (const [t, l] of probeResult.timeline) (buckets[Math.floor((t - t0) / 1000)] ??= []).push(l);
+  for (const [sec, ls] of Object.entries(buckets))
+    console.log(
+      `  t+${sec}s : ${ls.length} deltas, médiane ${pct(ls, 50)} ms, max ${Math.max(...ls)} ms`,
+    );
+}
+if (probeResult.latencies.length) {
+  console.log(
+    `latence delta (serveur -> client, 20 sondes isolées) : ${fmt(probeResult.latencies)}`,
+  );
+}
 console.log(`erreurs   : ${Object.keys(errors).length ? JSON.stringify(errors) : 'aucune'}`);
 console.log(`durée     : ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 for (const p of players) p.socket?.close();

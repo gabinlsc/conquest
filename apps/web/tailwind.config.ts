@@ -28,6 +28,30 @@ const config: Config = {
         'pop-lg': '6px 6px 0 #000',
       },
       borderWidth: { 3: '3px' },
+      keyframes: {
+        confetti: {
+          '0%': { transform: 'translate(0,0) rotate(0) scale(1)', opacity: '1' },
+          '100%': {
+            transform: 'translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.6)',
+            opacity: '0',
+          },
+        },
+        toast: {
+          '0%': { transform: 'translateY(-16px) rotate(-3deg) scale(0.9)', opacity: '0' },
+          '60%': { transform: 'translateY(2px) rotate(1deg) scale(1.03)', opacity: '1' },
+          '100%': { transform: 'translateY(0) rotate(0) scale(1)', opacity: '1' },
+        },
+        pop: {
+          '0%': { transform: 'scale(0.4) rotate(-12deg)', opacity: '0' },
+          '70%': { transform: 'scale(1.12) rotate(3deg)', opacity: '1' },
+          '100%': { transform: 'scale(1) rotate(-3deg)', opacity: '1' },
+        },
+      },
+      animation: {
+        confetti: 'confetti 1.1s cubic-bezier(0.2, 0.7, 0.3, 1) forwards',
+        toast: 'toast 0.35s ease-out',
+        pop: 'pop 0.45s ease-out both',
+      },
     },
   },
   plugins: [],

@@ -1,6 +1,6 @@
 'use client';
 
-import { Crown, LogOut, Shield, Users, X } from 'lucide-react';
+import { Bell, Crown, LogOut, Shield, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { OAUTH_PROVIDERS, colorForKey, type ClanSummary, type MyFaction } from '@conquest/shared';
 import { ApiError, createClan, joinClan, leaveClan, listClans, logout, patchMe } from '@/lib/api';
@@ -119,6 +119,8 @@ function Drawer({
           </div>
         </section>
       )}
+
+      <NotifyToggle />
 
       <button
         disabled={busy}
@@ -324,6 +326,37 @@ function ClanBrowser({
             Fonder le clan
           </button>
         </form>
+      )}
+    </section>
+  );
+}
+
+/** Active les notifications natives du navigateur (alertes quand l'onglet est en arrière-plan). */
+function NotifyToggle() {
+  const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>('unsupported');
+  useEffect(() => {
+    if ('Notification' in window) setPerm(Notification.permission);
+  }, []);
+  if (perm === 'unsupported') return null;
+  return (
+    <section className="space-y-2 border-t-3 border-dashed border-ink pt-3">
+      <h3 className="text-sm uppercase tracking-wide">Alertes</h3>
+      {perm === 'granted' ? (
+        <p className="flex items-center gap-2 text-xs font-bold">
+          <Bell className="h-4 w-4" strokeWidth={3} /> Notifications du navigateur activées.
+        </p>
+      ) : perm === 'denied' ? (
+        <p className="text-xs font-medium text-ink/60">
+          Notifications bloquées dans les réglages du navigateur.
+        </p>
+      ) : (
+        <button
+          className="btn btn-sky w-full !py-1.5 text-sm"
+          onClick={() => void Notification.requestPermission().then(setPerm)}
+        >
+          <Bell className="h-4 w-4" strokeWidth={3} />
+          Me prévenir quand ma ville est attaquée
+        </button>
       )}
     </section>
   );

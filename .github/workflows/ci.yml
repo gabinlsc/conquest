@@ -56,6 +56,9 @@ jobs:
           cp .env.example .env
           docker compose config -q
           bash -n deploy.sh
+          docker compose -f docker-compose.yml -f docker-compose.nginx.yml config -q
+          sudo apt-get install -y -qq nginx
+          bash infra/nginx/check.sh
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck deploy.sh
       - name: Build des images

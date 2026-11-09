@@ -6,11 +6,25 @@ import { testEnv } from './test-helpers';
 const env = testEnv();
 
 describe('GET /api/health', () => {
-  it('répond ok quand la base répond', async () => {
-    const app = await buildApp(env, { db: fakeDb(true) });
+  it('répond ok quand la base et Redis répondent', async () => {
+    const world = { store: { isUp: () => true } } as never;
+    const app = await buildApp(env, { db: fakeDb(true), world });
     const res = await app.inject({ method: 'GET', url: '/api/health' });
     expect(res.statusCode).toBe(200);
-    expect(res.json<HealthResponse>()).toMatchObject({ status: 'ok', services: { db: 'up' } });
+    expect(res.json<HealthResponse>()).toMatchObject({
+      status: 'ok',
+      services: { db: 'up', redis: 'up' },
+    });
+    await app.close();
+  });
+
+  it('est dégradé (mais répond) sans Redis', async () => {
+    const app = await buildApp(env, { db: fakeDb(true) });
+    const res = await app.inject({ method: 'GET', url: '/api/health' });
+    expect(res.json<HealthResponse>()).toMatchObject({
+      status: 'degraded',
+      services: { db: 'up', redis: 'down' },
+    });
     await app.close();
   });
 
@@ -20,7 +34,7 @@ describe('GET /api/health', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json<HealthResponse>()).toMatchObject({
       status: 'degraded',
-      services: { db: 'down' },
+      services: { db: 'down', redis: 'down' },
     });
     await app.close();
   });

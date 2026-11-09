@@ -158,7 +158,10 @@ export async function joinClan(
  * et surtout des villes resteraient détenues par un clan fantôme).
  * NB phase 4 : la dissolution devra aussi mettre à jour l'état chaud Redis.
  */
-export async function leaveClan(db: Db, userId: string): Promise<{ disbanded: boolean }> {
+export async function leaveClan(
+  db: Db,
+  userId: string,
+): Promise<{ disbanded: boolean; clanId: number }> {
   return inTx(db, async (client) => {
     const me = await lockMembership(client, userId);
     if (me.faction_kind !== 'clan' || me.faction_id === null) {
@@ -197,7 +200,7 @@ export async function leaveClan(db: Db, userId: string): Promise<{ disbanded: bo
     await client.query('DELETE FROM faction_members WHERE user_id = $1', [userId]);
     if (disbanded) await client.query('DELETE FROM factions WHERE id = $1', [clanId]);
     if (me.country_code) await attachCountryFaction(client, userId, me.country_code.trim());
-    return { disbanded };
+    return { disbanded, clanId };
   });
 }
 

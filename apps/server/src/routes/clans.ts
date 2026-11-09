@@ -5,10 +5,15 @@ import type { Db } from '../db/pool';
 import { AppError } from '../http-error';
 import { createClan, getClan, joinClan, leaveClan, listClans } from '../factions/service';
 import { requireUser } from '../plugins/session';
+import type { WorldServices } from '../world/services';
 
 const idParam = z.coerce.number().int().positive();
 
-export function registerClanRoutes(api: FastifyInstance, db: Db): void {
+export function registerClanRoutes(
+  api: FastifyInstance,
+  db: Db,
+  world: WorldServices | undefined,
+): void {
   api.get('/clans', async (req) => listClans(db, clansQuerySchema.parse(req.query)));
 
   api.get<{ Params: { id: string } }>('/clans/:id', async (req) => {
@@ -40,6 +45,9 @@ export function registerClanRoutes(api: FastifyInstance, db: Db): void {
 
   api.post('/clans/leave', async (req) => {
     const userId = requireUser(req);
-    return leaveClan(db, userId);
+    const { disbanded, clanId } = await leaveClan(db, userId);
+    // Clan dissous : ses villes reviennent à leur pays dans l'état chaud (Redis) et sur les cartes ouvertes.
+    if (disbanded && world) await world.effects.onFactionDisbanded(clanId).catch(() => undefined);
+    return { disbanded };
   });
 }

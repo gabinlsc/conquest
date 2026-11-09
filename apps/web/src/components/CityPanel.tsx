@@ -7,9 +7,43 @@ const RARITY_LABEL: Record<Rarity, { text: string; cls: string }> = {
   legendary: { text: 'Légendaire', cls: 'bg-amber-500 text-black' },
 };
 
+/** Rapport de force : influence de chaque faction ; il faut dépasser celle de l'occupant (≥ garnison). */
+function InfluenceBars({ city }: { city: City }) {
+  const rows = city.influence.filter((i) => i.value > 0);
+  const top = Math.max(city.garrison, ...rows.map((r) => r.value));
+  if (rows.length === 0) {
+    return (
+      <p className="mt-3 text-xs text-slate-500">Garnison : {city.garrison} — aucune pression.</p>
+    );
+  }
+  return (
+    <div className="mt-3 space-y-1.5">
+      <p className="text-xs text-slate-500">Influence (garnison {city.garrison})</p>
+      {rows.slice(0, 5).map((r) => (
+        <div key={r.factionId} className="text-xs">
+          <div className="mb-0.5 flex justify-between">
+            <span
+              className={r.factionId === city.ownerFactionId ? 'font-semibold' : 'text-slate-300'}
+            >
+              {r.name}
+            </span>
+            <span className="font-mono text-slate-400">{r.value}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded bg-slate-800">
+            <div
+              className="h-full rounded"
+              style={{ width: `${(r.value / top) * 100}%`, background: r.color }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface Props {
   city: City;
-  owner: Faction | undefined;
+  owner: Pick<Faction, 'name' | 'color'> | undefined;
   onClose: () => void;
   action: { label: string; enabled: boolean; onClick: () => void };
 }
@@ -55,6 +89,7 @@ export function CityPanel({ city, owner, onClose, action }: Props) {
           )}
         </dd>
       </dl>
+      <InfluenceBars city={city} />
       <button
         disabled={!action.enabled}
         onClick={action.onClick}

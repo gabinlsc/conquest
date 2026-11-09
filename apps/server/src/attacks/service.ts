@@ -42,30 +42,24 @@ export async function startAttack(
     const ctx = await client.query<{
       faction_id: number | null;
       city_name: string | null;
-      owner_faction_id: number | null;
       last_ms: number | null;
       hourly: number;
     }>(
       `SELECT m.faction_id,
               c.name AS city_name,
-              s.owner_faction_id,
               (SELECT extract(epoch FROM clock_timestamp() - max(started_at)) * 1000
                  FROM attacks WHERE user_id = $1) AS last_ms,
               (SELECT count(*)::int FROM attacks
                  WHERE user_id = $1 AND started_at > now() - interval '1 hour') AS hourly
        FROM (SELECT $1::uuid AS user_id) u
        LEFT JOIN faction_members m ON m.user_id = u.user_id
-       LEFT JOIN cities c ON c.geonames_id = $2
-       LEFT JOIN city_state s ON s.geonames_id = c.geonames_id`,
+       LEFT JOIN cities c ON c.geonames_id = $2`,
       [userId, input.cityId],
     );
     const row = ctx.rows[0];
     if (!row?.faction_id) throw new AppError(409, 'rejoins d’abord une faction', 'no_faction');
     if (!row.city_name) throw new AppError(404, 'ville introuvable', 'unknown_city');
-    // NB phase 4 : le propriétaire « chaud » vivra dans Redis ; cette lecture Postgres sera remplacée.
-    if (row.owner_faction_id === row.faction_id) {
-      throw new AppError(409, 'cette ville appartient déjà à ta faction', 'own_city');
-    }
+    // Attaquer sa propre ville la DÉFEND (renforce son influence) : aucune restriction ici.
     if (row.last_ms !== null && row.last_ms < START_COOLDOWN_MS) {
       throw new AppError(429, 'trop rapide, patiente quelques secondes', 'cooldown');
     }

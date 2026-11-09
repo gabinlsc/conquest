@@ -20,6 +20,41 @@ const RATING_COLOR: Record<AttackResult['rating'], string> = {
   D: 'text-slate-500',
 };
 
+function EffectLine({ result, cityName }: { result: AttackResult; cityName: string }) {
+  const fx = result.effect;
+  if (!fx) {
+    return (
+      <p className="mt-3 text-xs text-amber-400">
+        Score enregistré : l’effet sur la carte sera appliqué dès que le monde sera de nouveau
+        disponible.
+      </p>
+    );
+  }
+  if (fx.captured) {
+    return (
+      <p className="mt-3 text-sm font-semibold text-emerald-400">
+        🏴 {cityName} capturée ! (+{fx.gain} d’influence)
+      </p>
+    );
+  }
+  if (fx.defended) {
+    return (
+      <p className="mt-3 text-sm text-sky-300">
+        🛡 Défense renforcée : +{fx.gain} (occupant : {fx.ownerInfluence})
+      </p>
+    );
+  }
+  return (
+    <p className="mt-3 text-sm text-slate-300">
+      +{fx.gain} d’influence
+      {fx.shielded ? ' — ville sous bouclier, capture impossible pour le moment' : ''}
+      <span className="block text-xs text-slate-500">
+        Occupant à dépasser : {fx.ownerInfluence}
+      </span>
+    </p>
+  );
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Envoi de la preuve avec reprises : l'endpoint est idempotent, réessayer ne peut pas créer de doublon. */
@@ -127,9 +162,7 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
                   {phase.result.stats['hits']} cibles touchées · {phase.result.stats['misses']}{' '}
                   ratés · réaction moyenne {phase.result.stats['avgReactionMs']} ms
                 </p>
-                <p className="mt-3 text-xs text-slate-500">
-                  Le score sera converti en influence sur la ville dès l’ouverture de la conquête.
-                </p>
+                <EffectLine result={phase.result} cityName={city.name} />
               </>
             ) : (
               <>

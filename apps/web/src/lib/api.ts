@@ -7,8 +7,8 @@ import type {
   ClanDetail,
   ClanSummary,
   Country,
+  GameEvent,
   MeResponse,
-  WorldState,
 } from '@conquest/shared';
 
 /** Relatif par défaut : Caddy (prod) ou le rewrite Next (dev) route /api vers le serveur. */
@@ -52,9 +52,6 @@ const getJson = <T>(path: string, signal?: AbortSignal) =>
 export const fetchCitiesGeoJson = (signal?: AbortSignal) =>
   getJson<FeatureCollection<Point>>('/cities/geojson', signal);
 
-export const fetchWorldState = (signal?: AbortSignal) =>
-  getJson<WorldState>('/world/state', signal);
-
 export const fetchCity = (id: number, signal?: AbortSignal) =>
   getJson<City>(`/cities/${id}`, signal);
 
@@ -91,3 +88,6 @@ export const startAttack = (cityId: number) =>
 /** Envoie la preuve brute (actions du joueur), jamais un score. Idempotent côté serveur : on peut réessayer. */
 export const submitAttack = (attackId: string, input: unknown) =>
   request<AttackResult>('POST', `/attacks/${attackId}/submit`, { input });
+
+export const fetchRecentEvents = (signal?: AbortSignal) =>
+  getJson<GameEvent[]>('/events?limit=20', signal);

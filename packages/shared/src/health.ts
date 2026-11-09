@@ -4,5 +4,5 @@ export interface HealthResponse {
   status: 'ok' | 'degraded';
   uptimeSeconds: number;
   version: string;
-  services: { db: 'up' | 'down' };
+  services: { db: 'up' | 'down'; redis: 'up' | 'down' };
 }

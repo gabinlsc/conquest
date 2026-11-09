@@ -3,30 +3,82 @@ import { buildApp } from './app';
 import { createPool } from './db/pool';
 import { migrate } from './db/migrations';
 import { purgeExpiredSessions } from './auth/session';
+import { EffectService } from './attacks/effects';
+import { EventService } from './events/service';
+import { attachGateway } from './realtime/gateway';
+import { FactionDirectory } from './world/factions';
+import { CityIndex } from './world/geo';
+import { createRedis } from './world/redis';
+import { WorldStore } from './world/store';
 
 async function main(): Promise<void> {
   const env = parseServerEnv(process.env);
   const pool = createPool(env.DATABASE_URL);
   await migrate(pool, (m) => console.log(`[db] ${m}`));
-  const app = await buildApp(env, { db: pool });
 
-  // Ménage horaire des sessions expirées (non bloquant, n'empêche pas l'arrêt du process).
-  const purge = setInterval(() => {
-    purgeExpiredSessions(pool).catch((err: unknown) => app.log.warn({ err }, 'purge des sessions'));
-  }, 3_600_000);
-  purge.unref();
+  // ---- État chaud du monde ----
+  const redis = createRedis(env.REDIS_URL, (m) => console.log(`[world] ${m}`));
+  const geo = await CityIndex.load(pool);
+  const factions = await FactionDirectory.load(pool);
+  const store = new WorldStore(redis, geo);
+  const events = new EventService(pool);
+  const effects = new EffectService({ db: pool, store, geo, factions, events });
+  const world = { store, geo, factions, effects, events };
 
-  // Arrêt propre : Docker envoie SIGTERM, on laisse finir les requêtes en cours.
+  const app = await buildApp(env, { db: pool, world });
+  const gateway = attachGateway(app, { env, db: pool, store, factions, events });
+  effects.publisher = gateway;
+
+  // À chaque (re)connexion de Redis : recharge l'état depuis Postgres s'il a été perdu.
+  const hydrate = () =>
+    store.hydrateIfEmpty(pool).then(
+      (done) => done && app.log.info('état du monde chargé dans Redis'),
+      (err: unknown) => app.log.warn({ err }, 'hydratation impossible'),
+    );
+  redis.on('ready', () => void hydrate());
+  // Redis a pu devenir prêt pendant le chargement des index ci-dessus : l'événement 'ready' est alors déjà passé.
+  if (store.isUp()) void hydrate();
+
+  // ---- Tâches de fond (non bloquantes, n'empêchent pas l'arrêt) ----
+  const every = (ms: number, name: string, fn: () => Promise<unknown>) => {
+    let running = false;
+    const t = setInterval(() => {
+      if (running) return; // pas de chevauchement si une passe est lente
+      running = true;
+      fn()
+        .catch((err: unknown) => app.log.warn({ err }, `tâche ${name}`))
+        .finally(() => {
+          running = false;
+        });
+    }, ms);
+    t.unref();
+    return t;
+  };
+  every(3_600_000, 'purge sessions', () => purgeExpiredSessions(pool));
+  // Write-behind : Redis -> Postgres toutes les 2 s (seulement les villes modifiées).
+  every(2_000, 'persistance', async () => {
+    if (store.isUp()) while ((await store.persistDirty(pool)) === 500);
+  });
+  // Mode dégradé : rejoue les attaques validées pendant une panne de Redis.
+  every(10_000, 'réconciliation', () => effects.reconcile());
+
+  // ---- Arrêt propre ----
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       app.log.info({ signal }, 'arrêt demandé');
-      app
-        .close()
-        .then(() => pool.end())
-        .then(
-          () => process.exit(0),
-          () => process.exit(1),
-        );
+      void (async () => {
+        try {
+          await gateway.close();
+          await app.close();
+          // Dernière vidange : rien de ce qui est en attente dans Redis ne doit être perdu.
+          if (store.isUp()) while ((await store.persistDirty(pool)) > 0);
+          redis.disconnect();
+          await pool.end();
+          process.exit(0);
+        } catch {
+          process.exit(1);
+        }
+      })();
     });
   }
 

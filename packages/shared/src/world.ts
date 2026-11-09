@@ -86,6 +86,14 @@ export interface City {
   lon: number;
   lat: number;
   ownerFactionId: number | null;
+  /** Faction occupante (nom, couleur) ; null si neutre. */
+  ownerFaction: { id: number; name: string; color: string } | null;
+  /** Garnison de base de l'occupant (influence minimale à battre pour capturer). */
+  garrison: number;
+  /** Influence par faction (état chaud) ; vide si indisponible. */
+  influence: { factionId: number; name: string; color: string; value: number }[];
+  /** Version de l'état (voir CityDelta.ver) ; 0 si inconnue. */
+  ver: number;
 }
 
 export interface CityListResponse {
@@ -97,17 +105,6 @@ export interface Country {
   code: string;
   name: string;
   continent: string;
-}
-
-/**
- * État dynamique du monde. Séparé de la géométrie : le client applique `owners`
- * via feature-state MapLibre ; en phase 4 les deltas temps réel utiliseront
- * exactement le même mécanisme (pas de rechargement de la source).
- */
-export interface WorldState {
-  factions: Faction[];
-  /** geonames_id -> faction id */
-  owners: Record<string, number>;
 }
 
 export const citiesQuerySchema = z.object({

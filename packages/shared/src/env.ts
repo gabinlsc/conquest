@@ -38,6 +38,24 @@ export const serverEnvSchema = z.object({
   /** Durée d'une saison, en semaines (à la fin : classement figé, carte remise à zéro). */
   SEASON_WEEKS: z.coerce.number().positive().max(52).default(4),
 
+  /** Bots d'animation : font vivre la carte tant qu'il y a peu de joueurs. */
+  BOTS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  BOT_COUNT: z.coerce.number().int().min(1).max(200).default(40),
+  /** Délai moyen entre deux actions de bot. */
+  BOT_INTERVAL_MS: z.coerce.number().int().min(500).default(6_000),
+  /** Au-delà de ce nombre de connectés, les bots se mettent en pause (les vrais joueurs suffisent). */
+  BOT_MAX_ONLINE: z.coerce.number().int().min(0).default(20),
+
+  /** Jeton d'accès à /metrics depuis l'extérieur du réseau privé (facultatif). */
+  METRICS_TOKEN: z
+    .string()
+    .min(16)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+
   // OAuth (Phase 2) : optionnels, le provider est désactivé s'il n'est pas configuré.
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,

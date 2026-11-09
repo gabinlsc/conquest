@@ -18,6 +18,7 @@ export interface CityMeta {
 export class CityIndex {
   private readonly byId = new Map<number, CityMeta>();
   private readonly byTile = new Map<string, number[]>();
+  private readonly byCountry = new Map<string, number[]>();
 
   static async load(db: Db): Promise<CityIndex> {
     const idx = new CityIndex();
@@ -48,6 +49,10 @@ export class CityIndex {
     const list = this.byTile.get(tile);
     if (list) list.push(id);
     else this.byTile.set(tile, [id]);
+    const cc = countryCode.trim();
+    const inCountry = this.byCountry.get(cc);
+    if (inCountry) inCountry.push(id);
+    else this.byCountry.set(cc, [id]);
   }
 
   get(id: number): CityMeta | undefined {
@@ -56,6 +61,17 @@ export class CityIndex {
 
   idsInTile(tile: string): readonly number[] {
     return this.byTile.get(tile) ?? [];
+  }
+
+  idsInCountry(countryCode: string): readonly number[] {
+    return this.byCountry.get(countryCode) ?? [];
+  }
+
+  /** Codes pays, du plus au moins riche en villes. */
+  countriesByCityCount(): string[] {
+    return [...this.byCountry.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([cc]) => cc);
   }
 
   get size(): number {

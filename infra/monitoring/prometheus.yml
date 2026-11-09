@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: conquest
+    # Réseau Docker interne : /metrics est refusé aux IP publiques par le serveur et masqué par Caddy.
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['server:3001']

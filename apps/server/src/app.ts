@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 import type { HealthResponse, ServerEnv } from '@conquest/shared';
 import { AppError } from './http-error';
+import { isPrivateIp, type Metrics } from './metrics';
 import { registerSession } from './plugins/session';
 import type { WorldServices } from './world/services';
 import { registerAttackRoutes } from './routes/attacks';
@@ -22,6 +23,8 @@ export interface AppDeps {
   fetchImpl?: typeof fetch;
   /** État chaud du monde (Redis). Absent : l'API sert Postgres en lecture seule. */
   world?: WorldServices;
+  /** Métriques Prometheus (exposées sur /metrics, réseau privé uniquement). */
+  metrics?: Metrics;
 }
 
 /**
@@ -55,6 +58,28 @@ export async function buildApp(env: ServerEnv, deps: AppDeps): Promise<FastifyIn
     skipOnError: true,
   });
   await registerSession(app, env, deps.db);
+
+  const metrics = deps.metrics;
+  if (metrics) {
+    // Durée par route (le motif `/api/cities/:id`, pas l'URL brute : cardinalité bornée).
+    app.addHook('onResponse', (req, reply, done) => {
+      metrics.observeHttp(
+        req.method,
+        req.routeOptions.url ?? 'inconnue',
+        reply.statusCode,
+        reply.elapsedTime / 1000,
+      );
+      done();
+    });
+    // /metrics n'est PAS sous /api et n'est jamais exposé par Caddy : seule une IP du réseau privé (Prometheus
+    // dans Docker) ou le porteur du jeton y accède. Derrière Caddy, req.ip est l'IP publique du visiteur.
+    app.get('/metrics', async (req, reply) => {
+      const bearer = req.headers.authorization?.replace(/^Bearer /, '');
+      const allowed = isPrivateIp(req.ip) || (!!env.METRICS_TOKEN && bearer === env.METRICS_TOKEN);
+      if (!allowed) return reply.code(403).send({ error: 'interdit' });
+      return reply.type(metrics.registry.contentType).send(await metrics.render());
+    });
+  }
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
@@ -92,7 +117,7 @@ export async function buildApp(env: ServerEnv, deps: AppDeps): Promise<FastifyIn
       registerClanRoutes(api, deps.db, deps.world);
       registerEventRoutes(api, deps.world?.events);
       registerLeaderboardRoutes(api, deps.world);
-      registerAttackRoutes(api, { db: deps.db, env, world: deps.world });
+      registerAttackRoutes(api, { db: deps.db, env, world: deps.world, metrics: deps.metrics });
       done();
     },
     { prefix: '/api' },

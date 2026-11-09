@@ -4,6 +4,7 @@ import { MINIGAME_IDS, type ServerEnv } from '@conquest/shared';
 import type { Db } from '../db/pool';
 import { getAttack, hashIp, startAttack, submitAttack } from '../attacks/service';
 import { AppError } from '../http-error';
+import type { Metrics } from '../metrics';
 import { requireUser } from '../plugins/session';
 import type { WorldServices } from '../world/services';
 
@@ -19,7 +20,13 @@ export function registerAttackRoutes(
     db,
     env,
     world,
-  }: { db: Db; env: Pick<ServerEnv, 'SESSION_SECRET'>; world: WorldServices | undefined },
+    metrics,
+  }: {
+    db: Db;
+    env: Pick<ServerEnv, 'SESSION_SECRET'>;
+    world: WorldServices | undefined;
+    metrics?: Metrics | undefined;
+  },
 ): void {
   api.post('/attacks', async (req, reply) => {
     const userId = requireUser(req);
@@ -32,7 +39,9 @@ export function registerAttackRoutes(
         'season_rollover',
       );
     reply.header('Cache-Control', 'no-store');
-    return reply.code(201).send(await startAttack(db, env.SESSION_SECRET, userId, body));
+    const started = await startAttack(db, env.SESSION_SECRET, userId, body);
+    metrics?.attack('started');
+    return reply.code(201).send(started);
   });
 
   // Le corps est la preuve brute du client (ex. { clicks: [...] }), jamais un score.
@@ -48,6 +57,7 @@ export function registerAttackRoutes(
       body.input,
       hashIp(env.SESSION_SECRET, req.ip),
     );
+    metrics?.attack(result.validated ? 'validated' : 'invalid');
     if (!result.validated || !world) return result;
     // L'effet est appliqué après l'enregistrement du score, de façon idempotente : un client qui réessaie
     // (réponse perdue) ne double jamais l'influence. Si Redis est tombé, l'effet reste « en attente ».

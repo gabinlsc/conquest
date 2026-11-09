@@ -18,6 +18,7 @@ import type pg from 'pg';
 import { AntiCheatService } from './anticheat/service';
 import { EffectService } from './attacks/effects';
 import { EventService } from './events/service';
+import { Metrics } from './metrics';
 import { attachGateway, type Gateway } from './realtime/gateway';
 import { LeaderboardService } from './seasons/leaderboards';
 import { SeasonService } from './seasons/service';
@@ -31,7 +32,7 @@ import { WorldStore } from './world/store';
 export async function createTestWorld(
   pool: pg.Pool,
   redisUrl: string,
-): Promise<WorldServices & { redisReady: Promise<void> }> {
+): Promise<WorldServices & { redisReady: Promise<void>; metrics: Metrics }> {
   const redis = createRedis(redisUrl);
   const redisReady = new Promise<void>((resolve) => redis.once('ready', () => resolve()));
   await redisReady;
@@ -41,7 +42,8 @@ export async function createTestWorld(
   const store = new WorldStore(redis, geo);
   const events = new EventService(pool);
   const leaderboards = new LeaderboardService(redis, pool, factions);
-  const anticheat = new AntiCheatService(pool, redis);
+  const metrics = new Metrics();
+  const anticheat = new AntiCheatService(pool, redis, metrics);
   const seasons = new SeasonService({
     db: pool,
     store,
@@ -58,10 +60,22 @@ export async function createTestWorld(
     leaderboards,
     seasons,
     anticheat,
+    metrics,
   });
   await store.hydrateIfEmpty(pool);
   await seasons.refresh();
-  return { store, geo, factions, effects, events, leaderboards, seasons, anticheat, redisReady };
+  return {
+    store,
+    geo,
+    factions,
+    effects,
+    events,
+    leaderboards,
+    seasons,
+    anticheat,
+    redisReady,
+    metrics,
+  };
 }
 
 export function attachTestGateway(

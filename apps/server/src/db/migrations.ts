@@ -214,6 +214,17 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: '006_bots',
+    sql: `
+      -- Les bots sont de vrais comptes marqués comme tels : ils animent la carte mais n'entrent
+      -- ni dans les classements de joueurs ni dans les statistiques anti-triche.
+      ALTER TABLE users DROP CONSTRAINT users_kind_check;
+      ALTER TABLE users ADD CONSTRAINT users_kind_check CHECK (kind IN ('guest', 'oauth', 'bot'));
+      ALTER TABLE users ADD COLUMN is_bot boolean NOT NULL DEFAULT false;
+      CREATE INDEX users_bot_idx ON users (id) WHERE is_bot;
+    `,
+  },
 ];
 
 const LOCK_KEY = 727_001; // verrou advisory : un seul process migre à la fois

@@ -5,6 +5,8 @@ import { migrate } from './db/migrations';
 import { purgeExpiredSessions } from './auth/session';
 import { AntiCheatService } from './anticheat/service';
 import { EffectService } from './attacks/effects';
+import { BotService } from './bots/service';
+import { Metrics } from './metrics';
 import { EventService } from './events/service';
 import { attachGateway } from './realtime/gateway';
 import { LeaderboardService } from './seasons/leaderboards';
@@ -26,7 +28,8 @@ async function main(): Promise<void> {
   const store = new WorldStore(redis, geo);
   const events = new EventService(pool);
   const leaderboards = new LeaderboardService(redis, pool, factions);
-  const anticheat = new AntiCheatService(pool, redis);
+  const metrics = new Metrics();
+  const anticheat = new AntiCheatService(pool, redis, metrics);
   const seasons = new SeasonService({
     db: pool,
     store,
@@ -43,14 +46,43 @@ async function main(): Promise<void> {
     leaderboards,
     seasons,
     anticheat,
+    metrics,
   });
   const world = { store, geo, factions, effects, events, leaderboards, seasons, anticheat };
   await seasons.refresh(); // crée la première saison au tout premier démarrage
 
-  const app = await buildApp(env, { db: pool, world });
+  const app = await buildApp(env, { db: pool, world, metrics });
   const gateway = attachGateway(app, { env, db: pool, store, factions, events });
   effects.publisher = gateway;
   seasons.publisher = gateway;
+  metrics.bind({
+    online: () => gateway.online(),
+    redisUp: () => store.isUp(),
+    pendingWrites: () => store.pendingCount(),
+    seasonId: async () => (await seasons.current()).id,
+  });
+
+  // Bots d'animation (désactivés par défaut ; actifs en production via BOTS_ENABLED).
+  const bots = new BotService({
+    db: pool,
+    store,
+    geo,
+    factions,
+    effects,
+    seasons,
+    online: () => gateway.online(),
+    metrics,
+    config: {
+      count: env.BOT_COUNT,
+      intervalMs: env.BOT_INTERVAL_MS,
+      maxOnline: env.BOT_MAX_ONLINE,
+    },
+  });
+  if (env.BOTS_ENABLED) {
+    const n = await bots.init();
+    bots.start();
+    app.log.info({ bots: n }, 'bots d’animation actifs');
+  }
 
   // À chaque (re)connexion de Redis : recharge l'état depuis Postgres s'il a été perdu.
   const hydrate = () =>
@@ -96,6 +128,7 @@ async function main(): Promise<void> {
       app.log.info({ signal }, 'arrêt demandé');
       void (async () => {
         try {
+          bots.stop();
           await gateway.close();
           await app.close();
           // Dernière vidange : rien de ce qui est en attente dans Redis ne doit être perdu.

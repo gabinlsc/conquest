@@ -182,6 +182,9 @@ export const isTileKey = (s: string): boolean => /^(\d|1[0-5]):[0-7]$/.test(s);
 /** Mise à jour d'une ville, diffusée uniquement aux abonnés de sa tuile. */
 export interface CityDelta {
   id: number;
+  /** Position de la ville (pour l'animation de vague côté client). */
+  lon: number;
+  lat: number;
   owner: number;
   /** Numéro de version global croissant : le client ignore tout message plus ancien que ce qu'il connaît. */
   ver: number;
@@ -215,12 +218,29 @@ export interface GameEvent {
   from: Faction | null;
 }
 
+/** Alerte personnelle : une ville de ta faction est attaquée (ou vient de tomber). */
+export interface CityAlert {
+  id: string;
+  at: number;
+  cityId: number;
+  cityName: string;
+  lon: number;
+  lat: number;
+  captured: boolean;
+  /** Faction attaquante. */
+  by: Faction;
+  gain: number;
+}
+
 export interface ServerToClientEvents {
   delta: (d: CityDelta) => void;
   tiles: (s: TileSnapshot) => void;
-  event: (e: GameEvent) => void;
+  /** Événements du flux, regroupés par lots (du plus ancien au plus récent) pour limiter les écritures en rafale. */
+  events: (list: GameEvent[]) => void;
   'feed:init': (events: GameEvent[]) => void;
   presence: (p: { online: number }) => void;
+  /** Une ville de ta faction est attaquée. */
+  alert: (a: CityAlert) => void;
   /** Nouvelle saison : `reset` = true quand la carte a été remise à zéro (le client doit tout recharger). */
   season: (s: { season: SeasonInfo; reset: boolean }) => void;
 }
@@ -228,4 +248,6 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   /** Remplace l'ensemble des tuiles suivies ; l'accusé liste les tuiles réellement acceptées. */
   sub: (tiles: string[], ack?: (res: { tiles: string[] }) => void) => void;
+  /** À envoyer quand la faction du joueur change (clan rejoint/quitté, pays modifié) : met à jour ses alertes. */
+  'faction:refresh': () => void;
 }

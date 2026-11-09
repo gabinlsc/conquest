@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttackResult, AttackStartResponse, City, ReflexParams } from '@conquest/shared';
 import { ApiError, startAttack, submitAttack } from '@/lib/api';
+import { sfx } from '@/lib/sound';
+import { Confetti } from './Confetti';
 import { Spark, Star } from './Decor';
 import { ReflexGame } from './ReflexGame';
 
@@ -113,7 +115,12 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
     if (!id) return;
     setPhase({ kind: 'submitting' });
     submitWithRetry(id, input).then(
-      (result) => setPhase({ kind: 'result', result }),
+      (result) => {
+        if (!result.validated) sfx.defeat();
+        else if (result.effect?.captured) sfx.capture();
+        else sfx.win();
+        setPhase({ kind: 'result', result });
+      },
       (err: unknown) =>
         setPhase({
           kind: 'error',
@@ -155,13 +162,14 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
 
         {phase.kind === 'result' && (
           <div className="relative w-full max-w-sm">
+            {phase.result.effect?.captured && <Confetti />}
             <Star className="absolute -right-5 -top-7 h-14 w-14 rotate-12" />
             <Spark className="absolute -left-6 top-16 h-10 w-10" />
             <div className="card bg-white p-6 text-center">
               {phase.result.validated ? (
                 <>
                   <p
-                    className={`mx-auto grid h-24 w-24 -rotate-3 place-items-center rounded-2xl border-3 border-ink font-display text-7xl font-bold shadow-pop ${RATING_COLOR[phase.result.rating]}`}
+                    className={`mx-auto grid h-24 w-24 -rotate-3 animate-pop place-items-center rounded-2xl border-3 border-ink font-display text-7xl font-bold shadow-pop ${RATING_COLOR[phase.result.rating]}`}
                   >
                     {phase.result.rating}
                   </p>

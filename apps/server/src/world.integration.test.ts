@@ -316,7 +316,7 @@ describe.skipIf(!dbUrl || !redisUrl)('monde temps réel', () => {
   /** Joue (et gagne) une partie complète sur une ville ; antidate le démarrage pour simuler 31 s de jeu. */
   async function playAttack(p: Player, cityId: number): Promise<LightMyRequestResponse> {
     await pool.query(`UPDATE attacks SET started_at = started_at - interval '10 seconds'`);
-    const start = (await p.call('POST', '/attacks', { cityId })).json<
+    const start = (await p.call('POST', '/attacks', { cityId, minigame: 'reflex' })).json<
       AttackStartResponse<ReflexParams>
     >();
     await pool.query(

@@ -102,7 +102,7 @@ describe.skipIf(!dbUrl || !redisUrl)('saisons, classements, anti-triche', () => 
     makeInput = humanInput,
   ): Promise<AttackResult> {
     await pool.query(`UPDATE attacks SET started_at = started_at - interval '10 seconds'`);
-    const start = (await p.call('POST', '/attacks', { cityId })).json<
+    const start = (await p.call('POST', '/attacks', { cityId, minigame: 'reflex' })).json<
       AttackStartResponse<ReflexParams>
     >();
     await pool.query(

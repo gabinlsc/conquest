@@ -120,3 +120,18 @@ curl -fsSL .../deploy.sh | sudo bash -s -- status | logs | down
 1. Google : console Google Cloud → API et services → Identifiants → ID client OAuth (application Web). Discord : portail développeur → Application → OAuth2.
 2. URI de redirection à déclarer : `https://conquest.glsc.fr/api/auth/oauth/google/callback` et `https://conquest.glsc.fr/api/auth/oauth/discord/callback`.
 3. `deploy.sh env GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=…` : les boutons apparaissent automatiquement pour chaque fournisseur configuré. Les deux flux (Authorization Code + PKCE, `state` signé) sont testés de bout en bout avec un faux fournisseur ; seule la connexion réelle à Google/Discord ne l'a pas été, faute de clés.
+
+## Épreuves (mini-jeux)
+
+Trois épreuves au choix (ou tirage au sort côté serveur), toutes sur la même interface `MiniGame` : le score est normalisé par le plafond théorique de chaque jeu, donc l'influence gagnée est comparable d'une épreuve à l'autre.
+
+| Épreuve     | Principe                                                          | Barème                                             | Où vit la logique      |
+| ----------- | ----------------------------------------------------------------- | -------------------------------------------------- | ---------------------- |
+| ⚡ Réflexes | cibles à cliquer avant disparition (30 s)                         | 20-100 / cible, −10 par raté                       | `packages/shared`      |
+| 🌍 Quiz géo | 10 questions (6 « ville → pays », 4 « pays → capitale »), 4 choix | 100 + jusqu'à 50 de bonus rapidité, −35 par erreur | **serveur uniquement** |
+| 🧠 Mémoire  | Simon 3×3, séquence qui s'allonge, une erreur = fin               | 60 + 15/pas + bonus rapidité par manche            | `packages/shared`      |
+
+- **Le quiz garde sa clé de réponses sur le serveur** : le client reçoit les questions et les options, jamais la bonne réponse ; la correction (et la revue des réponses) n'arrive qu'après la partie, à usage unique. Jeu de données : 155 villes et 132 pays (127 avec question « capitale »), uniquement des faits non contestés.
+- **Fin anticipée légitime** : répondre aux 10 questions, ou rater à la mémoire, termine la partie avant les 30 s sans être pris pour une triche ; le contrôle de temps réel reste actif (on ne peut pas dater une action dans le futur).
+- **Anti-triche propre à chaque jeu** : réponses en moins de 350 ms, appuis à moins de 90 ms, appui pendant l'affichage de la séquence, ordre incohérent (rejets) ; délais métronomiques, 10/10 exceptionnellement rapide, empreinte de temps identique entre deux parties (signaux). Les statistiques de population (score aberrant) sont tenues par épreuve.
+- **Ajouter une épreuve** : un fichier qui implémente `MiniGame` (`generate`, `parseInput`, `validate`, `lastInputTime`, éventuellement `endsEarly`), son id dans `MINIGAME_IDS`, son entrée dans `apps/server/src/minigames/registry.ts`, un composant de rendu.

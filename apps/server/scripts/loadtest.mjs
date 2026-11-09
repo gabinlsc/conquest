@@ -212,7 +212,11 @@ await Promise.all(
     await sleep((n / attackers.length) * 4000); // étale les départs sur 4 s (arrivées réalistes)
     const city = top[(p.i * 13) % top.length];
     const start = await timed(tStart, () =>
-      api('POST', '/attacks', { cookie: p.cookie, ip: p.ip, body: { cityId: city.id } }),
+      api('POST', '/attacks', {
+        cookie: p.cookie,
+        ip: p.ip,
+        body: { cityId: city.id, minigame: 'reflex' },
+      }),
     );
     if (start.status !== 201) return bump(`start:${start.status}`);
     const { attackId, params } = start.data;

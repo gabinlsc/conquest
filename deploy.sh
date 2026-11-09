@@ -57,8 +57,50 @@ case "$CMD" in
     log "Configuration mise à jour, serveur redémarré."
     exit 0
     ;;
+  # Connexion Google / Discord : `oauth` vérifie la configuration, `oauth setup` saisit les clés SANS les afficher
+  # (ni historique shell, ni liste des processus). Exemple : ... | sudo bash -s -- oauth setup
+  oauth)
+    shift
+    [ -f "$INSTALL_DIR/.env" ] || die "Pas encore déployé : lance d'abord le déploiement."
+    oauth_domain=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" | cut -d= -f2)
+    if [ "${1:-}" = "setup" ]; then
+      [ -r /dev/tty ] || die "Un terminal interactif est nécessaire pour saisir les clés."
+      log "Callbacks à déclarer chez le fournisseur AVANT de continuer :"
+      log "  Google  : https://$oauth_domain/api/auth/oauth/google/callback"
+      log "  Discord : https://$oauth_domain/api/auth/oauth/discord/callback"
+      for provider in google discord; do
+        upper=${provider^^}
+        read -r -p "$provider — Client ID (Entrée pour ignorer) : " oauth_id </dev/tty
+        if [ -n "$oauth_id" ]; then
+          read -r -s -p "$provider — Client Secret (saisie masquée) : " oauth_secret </dev/tty
+          echo
+          [ -n "$oauth_secret" ] || die "Secret vide pour $provider."
+          set_env "${upper}_CLIENT_ID" "$oauth_id"
+          set_env "${upper}_CLIENT_SECRET" "$oauth_secret"
+        fi
+      done
+      unset oauth_secret
+      compose up -d --force-recreate server
+      log "Serveur redémarré, vérification dans quelques secondes…"
+      sleep 8
+    fi
+    for provider in google discord; do
+      upper=${provider^^}
+      if grep -q "^${upper}_CLIENT_ID=." "$INSTALL_DIR/.env" && grep -q "^${upper}_CLIENT_SECRET=." "$INSTALL_DIR/.env"; then
+        # Le serveur doit répondre par une redirection vers le fournisseur (sans suivre le lien).
+        loc=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "https://$oauth_domain/api/auth/oauth/$provider/start" || true)
+        case "$loc" in
+          302\ https://accounts.google.com/*|302\ https://discord.com/*) log "✔ $provider : configuré et opérationnel" ;;
+          *) log "✘ $provider : clés présentes mais le serveur ne redirige pas ($loc) — voir : ... | sudo bash -s -- logs" ;;
+        esac
+      else
+        log "– $provider : non configuré"
+      fi
+    done
+    exit 0
+    ;;
   deploy) ;;
-  *) die "Commande inconnue : $CMD (deploy|status|logs|down|env|anticheat)" ;;
+  *) die "Commande inconnue : $CMD (deploy|status|logs|down|env|anticheat|oauth)" ;;
 esac
 
 # ---------- 1. Paquets de base + Docker ----------

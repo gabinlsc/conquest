@@ -82,6 +82,7 @@ function play(tones: Tone[]): void {
 }
 
 /** Gamme pentatonique : toute suite de coups au but sonne juste. */
+const PAD_NOTES = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25, 784];
 const PENTA = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
 
 export const sfx = {
@@ -130,6 +131,16 @@ export const sfx = {
       { freq: 880, at: 0.3, dur: 0.12, type: 'square', gain: 0.07 },
       { freq: 660, at: 0.44, dur: 0.18, type: 'square', gain: 0.07 },
     ]),
+  /** Pastille de la mémoire : une note de la gamme par pastille (9 pastilles), ascendante de gauche à droite. */
+  pad: (i: number) =>
+    play([{ freq: PAD_NOTES[i % PAD_NOTES.length]!, dur: 0.28, type: 'triangle', gain: 0.12 }]),
+  right: () =>
+    play([
+      { freq: 880, dur: 0.1, type: 'triangle', gain: 0.07 },
+      { freq: 1175, at: 0.08, dur: 0.14, type: 'triangle', gain: 0.07 },
+    ]),
+  wrong: () => play([{ freq: 220, dur: 0.3, type: 'sawtooth', gain: 0.08, slideTo: 110 }]),
+  click: () => play([{ freq: 620, dur: 0.05, type: 'square', gain: 0.04 }]),
   /** Vague lointaine : discret, pour les captures vues sur la carte. */
   wave: () => play([{ freq: 300, dur: 0.35, type: 'sine', gain: 0.05, slideTo: 600 }]),
 };

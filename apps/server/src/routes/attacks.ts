@@ -10,7 +10,8 @@ import type { WorldServices } from '../world/services';
 
 const startSchema = z.object({
   cityId: z.number().int().positive(),
-  minigame: z.enum(MINIGAME_IDS).default('reflex'),
+  /** Épreuve choisie ; absente : tirée au sort par le serveur. */
+  minigame: z.enum(MINIGAME_IDS).optional(),
 });
 const uuid = z.string().uuid();
 

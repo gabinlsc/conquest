@@ -1,7 +1,5 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import {
-  MINIGAMES,
-  MINIGAME_IDS,
   evaluateAttempt,
   ratingFor,
   type AttackResult,
@@ -9,6 +7,7 @@ import {
   type MiniGameId,
 } from '@conquest/shared';
 import type { Db } from '../db/pool';
+import { GAMES, isMiniGameId, randomGame } from '../minigames/registry';
 import { AppError } from '../http-error';
 
 /** Délai minimal entre deux démarrages de partie par joueur (anti-spam, avant le store Redis de la phase 5). */
@@ -27,15 +26,11 @@ export const hashIp = (secret: string, ip: string): string =>
 export const deriveSeed = (secret: string, attackId: string): string =>
   createHmac('sha256', secret).update(`attack:${attackId}`).digest('hex').slice(0, 24);
 
-export function isMiniGameId(v: string): v is MiniGameId {
-  return (MINIGAME_IDS as readonly string[]).includes(v);
-}
-
 export async function startAttack(
   db: Db,
   secret: string,
   userId: string,
-  input: { cityId: number; minigame: MiniGameId },
+  input: { cityId: number; minigame?: MiniGameId | undefined },
 ): Promise<AttackStartResponse> {
   const client = await db.connect();
   try {
@@ -77,19 +72,21 @@ export async function startAttack(
       [userId],
     );
 
+    // Épreuve choisie par le joueur, sinon tirée au sort par le SERVEUR.
+    const minigame = input.minigame ?? randomGame();
     const attackId = randomUUID();
     const seed = deriveSeed(secret, attackId);
     await client.query(
       `INSERT INTO attacks (id, user_id, faction_id, city_id, minigame, seed, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'started')`,
-      [attackId, userId, row.faction_id, input.cityId, input.minigame, seed],
+      [attackId, userId, row.faction_id, input.cityId, minigame, seed],
     );
     await client.query('COMMIT');
 
-    const game = MINIGAMES[input.minigame];
+    const game = GAMES[minigame];
     return {
       attackId,
-      minigame: input.minigame,
+      minigame,
       seed,
       durationMs: game.durationMs,
       params: game.generate(seed),
@@ -157,7 +154,7 @@ export async function submitAttack(
       throw new AppError(409, 'cette partie a été abandonnée', 'abandoned');
     }
     if (!isMiniGameId(row.minigame)) throw new AppError(500, 'mini-jeu inconnu');
-    const game = MINIGAMES[row.minigame];
+    const game = GAMES[row.minigame];
 
     // Forme invalide -> 400 SANS consommer la partie (bug client : il peut renvoyer une entrée correcte).
     const input = game.parseInput(rawInput);

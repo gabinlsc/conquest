@@ -57,3 +57,12 @@ Idempotent : la même commande met à jour. Si nginx/apache occupe déjà les po
 - **OAuth Google / Discord** (code + PKCE, `state` signé) : un invité qui se connecte conserve son compte et sa progression. Un provider est actif seulement si ses variables `*_CLIENT_ID/SECRET` sont renseignées. URL de callback à déclarer chez le fournisseur : `https://<domaine>/api/auth/oauth/<google|discord>/callback`.
 - **Factions** : un joueur appartient à exactement une faction (pays par défaut, ou un clan). Clans ouverts ou sur invitation (code à 8 caractères), chef remplacé automatiquement, dissolution = les villes reviennent à leur pays. Changement de pays : une fois par semaine.
 - API : `GET/PATCH /api/me`, `POST /api/auth/logout`, `GET /api/clans`, `GET /api/clans/:id`, `POST /api/clans`, `POST /api/clans/:id/join`, `POST /api/clans/leave`.
+
+## Mini-jeux & attaques (phase 3)
+
+- **Moteur** (`packages/shared/src/minigames`) : interface `MiniGame { generate(seed), parseInput(raw), validate(seed, input) }`, pure et déterministe (PRNG à graine). Le client rend la partie avec `generate`, le serveur la **rejoue** avec `validate`. Le client n'envoie jamais de score, seulement ses actions brutes.
+- **Ajouter un jeu** : créer `monjeu.ts` (même interface), ajouter son id dans `MINIGAME_IDS`, l'enregistrer dans `MINIGAMES`, écrire son composant de rendu côté web.
+- **Flux** : `POST /api/attacks {cityId}` → graine HMAC liée à la partie + paramètres ; le joueur joue 30 s ; `POST /api/attacks/:id/submit {input}` → score calculé par le serveur. Soumission idempotente (verrou de ligne), forme invalide = 400 sans consommer la partie.
+- **Anti-triche (socle)** : graine dérivée par HMAC (non choisissable), contrôle du temps réel mesuré côté serveur (soumission instantanée, tardive, clics « dans le futur »), réactions inhumaines, spam de clics, tir sur cible déjà touchée, plafond de score théorique, cooldown et plafond horaire par joueur. Drapeaux `hard:`/`soft:` conservés en base (jamais renvoyés au client) pour la détection statistique de la phase 5.
+- **Réflexes** : cibles à cliquer avant disparition, 20 à 100 points par cible (rapidité + précision), −10 par tir manqué.
+- Le score n'est pas encore converti en influence : c'est la phase 4 (capture, état chaud Redis, temps réel).

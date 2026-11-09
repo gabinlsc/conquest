@@ -11,9 +11,10 @@ interface Props {
   city: City;
   owner: Faction | undefined;
   onClose: () => void;
+  action: { label: string; enabled: boolean; onClick: () => void };
 }
 
-export function CityPanel({ city, owner, onClose }: Props) {
+export function CityPanel({ city, owner, onClose, action }: Props) {
   const rarity = RARITY_LABEL[city.rarity];
   return (
     <aside className="absolute bottom-4 left-4 right-4 rounded-xl border border-slate-700 bg-slate-900/95 p-4 shadow-xl backdrop-blur sm:bottom-auto sm:left-auto sm:top-16 sm:w-80">
@@ -55,11 +56,11 @@ export function CityPanel({ city, owner, onClose }: Props) {
         </dd>
       </dl>
       <button
-        disabled
-        title="Disponible en phase 3"
-        className="mt-4 w-full cursor-not-allowed rounded bg-slate-700 py-2 text-sm font-semibold text-slate-400"
+        disabled={!action.enabled}
+        onClick={action.onClick}
+        className="mt-4 w-full rounded bg-rose-600 py-2 text-sm font-semibold hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
       >
-        Attaquer (bientôt)
+        {action.label}
       </button>
     </aside>
   );

@@ -2,12 +2,41 @@ import { describe, expect, it } from 'vitest';
 import type { HealthResponse } from '@conquest/shared';
 import { buildApp } from './app';
 
+const env = { NODE_ENV: 'test', LOG_LEVEL: 'silent' } as const;
+
 describe('GET /api/health', () => {
-  it('répond ok', async () => {
-    const app = await buildApp({ NODE_ENV: 'test', LOG_LEVEL: 'silent' });
+  it('répond ok quand la base répond', async () => {
+    const app = await buildApp(env, { db: fakeDb(true) });
     const res = await app.inject({ method: 'GET', url: '/api/health' });
     expect(res.statusCode).toBe(200);
-    expect(res.json<HealthResponse>().status).toBe('ok');
+    expect(res.json<HealthResponse>()).toMatchObject({ status: 'ok', services: { db: 'up' } });
+    await app.close();
+  });
+
+  it('passe en mode dégradé (200) quand la base est tombée', async () => {
+    const app = await buildApp(env, { db: fakeDb(false) });
+    const res = await app.inject({ method: 'GET', url: '/api/health' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<HealthResponse>()).toMatchObject({
+      status: 'degraded',
+      services: { db: 'down' },
+    });
     await app.close();
   });
 });
+
+describe('validation des requêtes', () => {
+  it('renvoie 400 sur une bbox invalide', async () => {
+    const app = await buildApp(env, { db: fakeDb(true) });
+    const res = await app.inject({ method: 'GET', url: '/api/cities?bbox=10,0,5,1' });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});
+
+function fakeDb(up: boolean) {
+  return {
+    query: () => (up ? Promise.resolve({ rows: [] }) : Promise.reject(new Error('down'))),
+    connect: () => Promise.reject(new Error('non utilisé')),
+  } as never;
+}

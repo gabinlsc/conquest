@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "infra:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis",
     "infra:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
-    "ci": "pnpm format:check && pnpm lint && pnpm build && pnpm typecheck && pnpm test"
+    "ci": "pnpm format:check && pnpm lint && pnpm build && pnpm typecheck && pnpm test",
+    "import:geonames": "pnpm --filter @conquest/server exec tsx --env-file-if-exists=../../.env src/cli/import-geonames.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

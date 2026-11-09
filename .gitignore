@@ -9,3 +9,6 @@ coverage
 data/
 .DS_Store
 apps/web/next-env.d.ts
+apps/web/public/maplibre/
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

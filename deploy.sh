@@ -124,6 +124,10 @@ for _ in $(seq 1 60); do
   fi
   sleep 2
 done
+
+# Import GeoNames au premier déploiement uniquement (idempotent, ne touche pas à la propriété des villes).
+log "Import des villes GeoNames (ignoré si déjà fait)…"
+compose exec -T server node dist/cli/import-geonames.js --if-empty
 compose ps
 
 DOMAIN_FINAL="$(grep '^DOMAIN=' "$ENV_FILE" | cut -d= -f2)"

@@ -5,3 +5,4 @@ coverage
 pnpm-lock.yaml
 data
 **/next-env.d.ts
+**/public/**

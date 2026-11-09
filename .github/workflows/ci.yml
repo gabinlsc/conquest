@@ -12,6 +12,19 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: conquest_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # Active les tests d'intégration (import GeoNames + API) contre un vrai PostGIS.
+      TEST_DATABASE_URL: postgres://test:test@localhost:5432/conquest_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

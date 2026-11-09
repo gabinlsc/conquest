@@ -16,7 +16,7 @@ interface Props {
 export function CityPanel({ city, owner, onClose }: Props) {
   const rarity = RARITY_LABEL[city.rarity];
   return (
-    <aside className="absolute bottom-4 left-4 right-4 rounded-xl border border-slate-700 bg-slate-900/95 p-4 shadow-xl backdrop-blur sm:bottom-auto sm:left-auto sm:top-4 sm:w-80">
+    <aside className="absolute bottom-4 left-4 right-4 rounded-xl border border-slate-700 bg-slate-900/95 p-4 shadow-xl backdrop-blur sm:bottom-auto sm:left-auto sm:top-16 sm:w-80">
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="text-xl font-bold leading-tight">{city.name}</h2>

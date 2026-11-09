@@ -2,6 +2,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { City, CityListResponse, WorldState } from '@conquest/shared';
 import { buildApp } from './app';
+import { testEnv } from './test-helpers';
 import { importGeonames } from './geonames/import';
 import { FIXTURE_ADMIN1, FIXTURE_CITIES, FIXTURE_COUNTRIES } from './geonames/fixtures';
 
@@ -20,7 +21,7 @@ describe.skipIf(!url)('import GeoNames + API villes', () => {
   beforeAll(async () => {
     await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
     await importGeonames(pool, files);
-    app = await buildApp({ NODE_ENV: 'test', LOG_LEVEL: 'silent' }, { db: pool });
+    app = await buildApp(testEnv(), { db: pool });
   });
   afterAll(async () => {
     await app.close();

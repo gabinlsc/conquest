@@ -60,6 +60,56 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX city_state_owner_idx ON city_state (owner_faction_id);
     `,
   },
+  {
+    id: '002_users_sessions_clans',
+    sql: `
+      CREATE TABLE users (
+        id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        kind               text NOT NULL CHECK (kind IN ('guest', 'oauth')),
+        display_name       text NOT NULL,
+        avatar_url         text,
+        country_code       char(2) REFERENCES countries(code),
+        country_changed_at timestamptz,
+        created_at         timestamptz NOT NULL DEFAULT now(),
+        last_seen_at       timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE oauth_accounts (
+        provider         text NOT NULL,
+        provider_user_id text NOT NULL,
+        user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (provider, provider_user_id)
+      );
+      CREATE INDEX oauth_accounts_user_idx ON oauth_accounts (user_id);
+
+      -- Sessions serveur : seul le hash SHA-256 du jeton est stocké (une fuite de la base
+      -- ne permet pas d'usurper une session). Le jeton clair n'existe que dans le cookie.
+      CREATE TABLE sessions (
+        token_hash bytea PRIMARY KEY,
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL
+      );
+      CREATE INDEX sessions_user_idx ON sessions (user_id);
+      CREATE INDEX sessions_expires_idx ON sessions (expires_at);
+
+      -- user_id en clé primaire : un joueur appartient à EXACTEMENT une faction
+      -- (son pays par défaut, ou un clan). Garanti par la base, pas seulement par le code.
+      CREATE TABLE faction_members (
+        user_id    uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        faction_id integer NOT NULL REFERENCES factions(id) ON DELETE CASCADE,
+        role       text NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'owner')),
+        joined_at  timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX faction_members_faction_idx ON faction_members (faction_id);
+
+      ALTER TABLE factions
+        ADD COLUMN open boolean NOT NULL DEFAULT true,
+        ADD COLUMN invite_code text UNIQUE;
+      CREATE UNIQUE INDEX factions_clan_name_idx ON factions (lower(name)) WHERE kind = 'clan';
+    `,
+  },
 ];
 
 const LOCK_KEY = 727_001; // verrou advisory : un seul process migre à la fois

@@ -1,3 +1,4 @@
+import { Flag } from 'lucide-react';
 import type { GameEvent } from '@conquest/shared';
 import type { ConnectionStatus } from '@/lib/realtime';
 
@@ -20,30 +21,31 @@ interface Props {
 export function LiveFeed({ events, online, status, now, onPick }: Props) {
   const badge =
     status === 'online'
-      ? { dot: 'bg-emerald-400', text: `${online.toLocaleString('fr-FR')} en ligne` }
+      ? { dot: 'bg-mint', text: `${online.toLocaleString('fr-FR')} en ligne` }
       : status === 'connecting'
-        ? { dot: 'bg-amber-400', text: 'Connexion…' }
-        : { dot: 'bg-red-500', text: 'Hors ligne — reconnexion…' };
+        ? { dot: 'bg-banana', text: 'Connexion…' }
+        : { dot: 'bg-coral', text: 'Hors ligne — reconnexion…' };
   return (
-    <div className="pointer-events-none absolute bottom-6 left-4 z-10 w-72 space-y-2 sm:bottom-8">
-      <div className="pointer-events-auto flex w-fit items-center gap-2 rounded-full bg-slate-900/90 px-3 py-1 text-xs text-slate-300">
-        <span className={`inline-block h-2 w-2 rounded-full ${badge.dot}`} />
+    <div className="pointer-events-none absolute bottom-8 left-4 z-10 w-72 space-y-2">
+      <div className="card-sm pointer-events-auto flex w-fit items-center gap-2 px-3 py-1 text-xs font-bold">
+        <span className={`inline-block h-3 w-3 rounded-full border-2 border-ink ${badge.dot}`} />
         {badge.text}
       </div>
-      <ul className="space-y-1.5">
-        {events.slice(0, 6).map((e, i) => (
-          <li key={e.id} style={{ opacity: 1 - i * 0.13 }}>
+      <ul className="space-y-2">
+        {events.slice(0, 5).map((e, i) => (
+          <li key={e.id} style={{ opacity: 1 - i * 0.14 }}>
             <button
               onClick={() => onPick(e)}
-              className="pointer-events-auto w-full rounded-lg border border-slate-800 bg-slate-900/85 px-3 py-1.5 text-left text-xs leading-snug backdrop-blur hover:bg-slate-800"
+              className="card-sm pointer-events-auto w-full px-3 py-1.5 text-left text-xs leading-snug transition hover:-translate-y-px hover:bg-banana"
             >
-              <span
-                className="mr-1.5 inline-block h-2 w-2 rounded-full"
-                style={{ background: e.faction.color }}
+              <Flag
+                className="mr-1.5 inline h-3.5 w-3.5 align-[-2px]"
+                strokeWidth={3}
+                style={{ color: e.faction.color, fill: e.faction.color }}
               />
               <strong>{e.faction.name}</strong> a capturé <strong>{e.cityName}</strong>
-              {e.from && <span className="text-slate-400"> à {e.from.name}</span>}
-              <span className="ml-1 text-slate-500">· {ago(e.at, now)}</span>
+              {e.from && <span className="text-ink/60"> à {e.from.name}</span>}
+              <span className="ml-1 font-bold text-ink/40">· {ago(e.at, now)}</span>
             </button>
           </li>
         ))}

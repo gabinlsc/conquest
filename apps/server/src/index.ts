@@ -3,9 +3,12 @@ import { buildApp } from './app';
 import { createPool } from './db/pool';
 import { migrate } from './db/migrations';
 import { purgeExpiredSessions } from './auth/session';
+import { AntiCheatService } from './anticheat/service';
 import { EffectService } from './attacks/effects';
 import { EventService } from './events/service';
 import { attachGateway } from './realtime/gateway';
+import { LeaderboardService } from './seasons/leaderboards';
+import { SeasonService } from './seasons/service';
 import { FactionDirectory } from './world/factions';
 import { CityIndex } from './world/geo';
 import { createRedis } from './world/redis';
@@ -22,12 +25,32 @@ async function main(): Promise<void> {
   const factions = await FactionDirectory.load(pool);
   const store = new WorldStore(redis, geo);
   const events = new EventService(pool);
-  const effects = new EffectService({ db: pool, store, geo, factions, events });
-  const world = { store, geo, factions, effects, events };
+  const leaderboards = new LeaderboardService(redis, pool, factions);
+  const anticheat = new AntiCheatService(pool, redis);
+  const seasons = new SeasonService({
+    db: pool,
+    store,
+    geo,
+    leaderboards,
+    durationMs: env.SEASON_WEEKS * 7 * 86_400_000,
+  });
+  const effects = new EffectService({
+    db: pool,
+    store,
+    geo,
+    factions,
+    events,
+    leaderboards,
+    seasons,
+    anticheat,
+  });
+  const world = { store, geo, factions, effects, events, leaderboards, seasons, anticheat };
+  await seasons.refresh(); // crée la première saison au tout premier démarrage
 
   const app = await buildApp(env, { db: pool, world });
   const gateway = attachGateway(app, { env, db: pool, store, factions, events });
   effects.publisher = gateway;
+  seasons.publisher = gateway;
 
   // À chaque (re)connexion de Redis : recharge l'état depuis Postgres s'il a été perdu.
   const hydrate = () =>
@@ -59,6 +82,11 @@ async function main(): Promise<void> {
   every(2_000, 'persistance', async () => {
     if (store.isUp()) while ((await store.persistDirty(pool)) === 500);
   });
+  // Classements : persistance Redis -> Postgres (write-behind) et clôture/ouverture des saisons.
+  every(5_000, 'classements', async () => {
+    if (leaderboards.isUp()) while ((await leaderboards.flush()) === 500);
+  });
+  every(30_000, 'saisons', () => seasons.tick());
   // Mode dégradé : rejoue les attaques validées pendant une panne de Redis.
   every(10_000, 'réconciliation', () => effects.reconcile());
 
@@ -71,7 +99,10 @@ async function main(): Promise<void> {
           await gateway.close();
           await app.close();
           // Dernière vidange : rien de ce qui est en attente dans Redis ne doit être perdu.
-          if (store.isUp()) while ((await store.persistDirty(pool)) > 0);
+          if (store.isUp()) {
+            while ((await store.persistDirty(pool)) > 0);
+            while ((await leaderboards.flush()) > 0);
+          }
           redis.disconnect();
           await pool.end();
           process.exit(0);

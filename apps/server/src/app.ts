@@ -10,6 +10,7 @@ import { registerAttackRoutes } from './routes/attacks';
 import { registerAuthRoutes } from './routes/auth';
 import { registerClanRoutes } from './routes/clans';
 import { registerEventRoutes } from './routes/events';
+import { registerLeaderboardRoutes } from './routes/leaderboards';
 import type { Db } from './db/pool';
 import { registerCityRoutes } from './routes/cities';
 
@@ -39,9 +40,20 @@ export async function buildApp(env: ServerEnv, deps: AppDeps): Promise<FastifyIn
   });
 
   await app.register(helmet);
-  // Plafond global par IP ; des limites plus strictes sont posées route par route (création de compte, etc.).
-  // Store en mémoire pour l'instant (un seul process) ; phase 5 : store Redis.
-  await app.register(rateLimit, { global: true, max: 600, timeWindow: '1 minute' });
+  // Plafond global ; des limites plus strictes sont posées route par route (création de compte, etc.).
+  await app.register(rateLimit, {
+    global: true,
+    max: 600,
+    timeWindow: '1 minute',
+    // Par JOUEUR quand il est connecté (et non par IP : un campus ou un VPN partagé ne doit pas se bloquer
+    // mutuellement), par IP sinon. `preHandler` : la session est alors déjà résolue.
+    hook: 'preHandler',
+    keyGenerator: (req) => req.userId ?? req.ip,
+    // Compteurs partagés dans Redis (valables si on passe à plusieurs processus) ; sans Redis : mémoire locale.
+    // Si Redis tombe en cours de route, on laisse passer plutôt que de refuser tout le trafic.
+    ...(deps.world ? { redis: deps.world.store.redis, nameSpace: 'rl:' } : {}),
+    skipOnError: true,
+  });
   await registerSession(app, env, deps.db);
 
   app.setErrorHandler((err, req, reply) => {
@@ -79,6 +91,7 @@ export async function buildApp(env: ServerEnv, deps: AppDeps): Promise<FastifyIn
       registerAuthRoutes(api, { db: deps.db, env, fetchImpl: deps.fetchImpl ?? fetch });
       registerClanRoutes(api, deps.db, deps.world);
       registerEventRoutes(api, deps.world?.events);
+      registerLeaderboardRoutes(api, deps.world);
       registerAttackRoutes(api, { db: deps.db, env, world: deps.world });
       done();
     },

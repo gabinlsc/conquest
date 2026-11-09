@@ -199,3 +199,26 @@ describe('ratingFor', () => {
     [0, 0, 'D'],
   ])('%i/%i -> %s', (s, m, r) => expect(ratingFor(s, m)).toBe(r));
 });
+
+describe('empreinte de parties (anti-rejeu)', () => {
+  it('est stable pour un même jeu et différente entre deux joueurs', () => {
+    const seedA = 'fp-a';
+    const play = (reaction: number) => {
+      const { targets } = reflexGame.generate(seedA);
+      return reflexGame.validate(seedA, {
+        clicks: targets.map((t, i) => ({
+          t: t.appearAt + reaction + ((i * 37) % 120),
+          x: t.x,
+          y: t.y,
+        })),
+      });
+    };
+    expect(play(300).fingerprint).toBe(play(300).fingerprint);
+    expect(play(300).fingerprint).not.toBe(play(450).fingerprint);
+    expect(play(300).fingerprint).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('n’est pas calculée sur trop peu de cibles touchées', () => {
+    expect(reflexGame.validate('fp-b', { clicks: [] }).fingerprint).toBeUndefined();
+  });
+});

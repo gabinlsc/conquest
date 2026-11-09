@@ -163,6 +163,57 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX events_city_idx ON events (city_id, id DESC);
     `,
   },
+  {
+    id: '005_seasons_leaderboards_anticheat',
+    sql: `
+      CREATE TABLE seasons (
+        id         serial PRIMARY KEY,
+        name       text NOT NULL,
+        starts_at  timestamptz NOT NULL,
+        ends_at    timestamptz NOT NULL,
+        status     text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
+        -- Podium figé à la clôture (survit à la suppression de joueurs/clans).
+        results    jsonb,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      -- Une seule saison active à la fois, garanti par la base.
+      CREATE UNIQUE INDEX seasons_one_active_idx ON seasons ((true)) WHERE status = 'active';
+
+      -- Copie durable des classements (Redis est la source chaude ; write-behind).
+      CREATE TABLE season_scores (
+        season_id    integer NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
+        kind         text NOT NULL CHECK (kind IN ('player', 'faction')),
+        entity_id    text NOT NULL,
+        points       bigint NOT NULL DEFAULT 0,
+        country_code char(2),
+        updated_at   timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (season_id, kind, entity_id)
+      );
+      CREATE INDEX season_scores_rank_idx ON season_scores (season_id, kind, points DESC);
+
+      ALTER TABLE attacks
+        ADD COLUMN season_id   integer REFERENCES seasons(id),
+        ADD COLUMN points      integer,
+        ADD COLUMN fingerprint text,
+        -- Empreinte HMAC de l'IP (jamais l'IP en clair) pour repérer les fermes de comptes.
+        ADD COLUMN ip_hash     text,
+        -- Garantit qu'une attaque n'est analysée (et sa suspicion comptée) qu'UNE fois, même rejouée.
+        ADD COLUMN assessed    boolean NOT NULL DEFAULT false;
+      CREATE INDEX attacks_fingerprint_idx ON attacks (fingerprint) WHERE fingerprint IS NOT NULL;
+      CREATE INDEX attacks_ip_idx ON attacks (ip_hash, started_at DESC) WHERE ip_hash IS NOT NULL;
+
+      ALTER TABLE users ADD COLUMN shadow_banned boolean NOT NULL DEFAULT false;
+
+      CREATE TABLE anticheat_state (
+        user_id      uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        suspicion    real NOT NULL DEFAULT 0,
+        flag_count   integer NOT NULL DEFAULT 0,
+        last_reasons text[] NOT NULL DEFAULT '{}',
+        flagged_at   timestamptz,
+        updated_at   timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
 
 const LOCK_KEY = 727_001; // verrou advisory : un seul process migre à la fois

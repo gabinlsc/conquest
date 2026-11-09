@@ -264,6 +264,21 @@ export class WorldStore {
     return changed;
   }
 
+  // ---------- Remise à zéro (changement de saison) ----------
+
+  /** Efface tout l'état chaud du monde puis le recharge depuis Postgres (déjà remis à zéro par l'appelant). */
+  async resetWorld(db: Db): Promise<void> {
+    const pipe = this.redis.pipeline().del(K.owners, K.vers, K.dirty, K.ready);
+    await pipe.exec();
+    let cursor = '0';
+    do {
+      const [next, keys] = await this.redis.scan(cursor, 'MATCH', 'w:c:*', 'COUNT', 1000);
+      cursor = next;
+      if (keys.length > 0) await this.redis.unlink(...keys);
+    } while (cursor !== '0');
+    await this.hydrateIfEmpty(db);
+  }
+
   // ---------- Write-behind (Redis -> Postgres) ----------
 
   /** Nombre de villes en attente de persistance. */

@@ -1,3 +1,4 @@
+import type { SeasonInfo } from './season';
 import type { Faction } from './world';
 
 /**
@@ -220,6 +221,8 @@ export interface ServerToClientEvents {
   event: (e: GameEvent) => void;
   'feed:init': (events: GameEvent[]) => void;
   presence: (p: { online: number }) => void;
+  /** Nouvelle saison : `reset` = true quand la carte a été remise à zéro (le client doit tout recharger). */
+  season: (s: { season: SeasonInfo; reset: boolean }) => void;
 }
 
 export interface ClientToServerEvents {

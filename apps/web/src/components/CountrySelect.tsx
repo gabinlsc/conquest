@@ -10,10 +10,12 @@ export function CountrySelect({
   value,
   onChange,
   disabled,
+  placeholder = '— Choisir un pays —',
 }: {
   value: string;
   onChange: (code: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }) {
   const [countries, setCountries] = useState<Country[]>(cache ?? []);
 
@@ -32,9 +34,9 @@ export function CountrySelect({
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm outline-none focus:border-sky-500"
+      className="field cursor-pointer"
     >
-      <option value="">— Choisir un pays —</option>
+      <option value="">{placeholder}</option>
       {countries.map((c) => (
         <option key={c.code} value={c.code}>
           {c.name}

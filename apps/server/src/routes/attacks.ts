@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { MINIGAME_IDS, type ServerEnv } from '@conquest/shared';
 import type { Db } from '../db/pool';
-import { getAttack, startAttack, submitAttack } from '../attacks/service';
+import { getAttack, hashIp, startAttack, submitAttack } from '../attacks/service';
+import { AppError } from '../http-error';
 import { requireUser } from '../plugins/session';
 import type { WorldServices } from '../world/services';
 
@@ -23,6 +24,13 @@ export function registerAttackRoutes(
   api.post('/attacks', async (req, reply) => {
     const userId = requireUser(req);
     const body = startSchema.parse(req.body);
+    // Remise à zéro de saison en cours : on ne lance pas de partie sur une carte qui va changer.
+    if (world?.seasons.paused)
+      throw new AppError(
+        503,
+        'changement de saison en cours, réessaie dans un instant',
+        'season_rollover',
+      );
     reply.header('Cache-Control', 'no-store');
     return reply.code(201).send(await startAttack(db, env.SESSION_SECRET, userId, body));
   });
@@ -33,7 +41,13 @@ export function registerAttackRoutes(
     reply.header('Cache-Control', 'no-store');
     const body = z.object({ input: z.unknown() }).parse(req.body ?? {});
     const attackId = uuid.parse(req.params.id);
-    const result = await submitAttack(db, userId, attackId, body.input);
+    const result = await submitAttack(
+      db,
+      userId,
+      attackId,
+      body.input,
+      hashIp(env.SESSION_SECRET, req.ip),
+    );
     if (!result.validated || !world) return result;
     // L'effet est appliqué après l'enregistrement du score, de façon idempotente : un client qui réessaie
     // (réponse perdue) ne double jamais l'influence. Si Redis est tombé, l'effet reste « en attente ».

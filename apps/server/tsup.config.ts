@@ -1,7 +1,11 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { index: 'src/index.ts', 'cli/import-geonames': 'src/cli/import-geonames.ts' },
+  entry: {
+    index: 'src/index.ts',
+    'cli/import-geonames': 'src/cli/import-geonames.ts',
+    'cli/anticheat': 'src/cli/anticheat.ts',
+  },
   format: ['esm'],
   target: 'node22',
   clean: true,

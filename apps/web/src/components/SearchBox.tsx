@@ -1,5 +1,6 @@
 'use client';
 
+import { Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { City } from '@conquest/shared';
 import { searchCities } from '@/lib/api';
@@ -28,18 +29,24 @@ export function SearchBox({ onPick }: { onPick: (id: number) => void }) {
 
   return (
     <div className="w-64">
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Rechercher une ville…"
-        className="w-full rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-2 text-sm outline-none focus:border-sky-500"
-      />
+      <label className="relative block">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+          strokeWidth={3}
+        />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Rechercher une ville…"
+          className="field pl-9 shadow-pop-sm"
+        />
+      </label>
       {results.length > 0 && (
-        <ul className="mt-1 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 text-sm">
+        <ul className="card-sm mt-2 overflow-hidden text-sm">
           {results.map((c) => (
-            <li key={c.id}>
+            <li key={c.id} className="border-b-2 border-ink/10 last:border-0">
               <button
-                className="flex w-full justify-between px-3 py-2 text-left hover:bg-slate-800"
+                className="flex w-full items-center justify-between px-3 py-2 text-left font-medium hover:bg-banana"
                 onClick={() => {
                   onPick(c.id);
                   setQ('');
@@ -47,7 +54,9 @@ export function SearchBox({ onPick }: { onPick: (id: number) => void }) {
                 }}
               >
                 <span>{c.name}</span>
-                <span className="text-slate-500">{c.countryCode}</span>
+                <span className="rounded-md bg-ink px-1.5 text-[11px] font-bold text-white">
+                  {c.countryCode}
+                </span>
               </button>
             </li>
           ))}

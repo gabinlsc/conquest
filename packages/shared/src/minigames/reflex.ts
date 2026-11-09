@@ -59,6 +59,22 @@ const FAST_AVG_REACTION_MS = 170;
 const SUSPICIOUS_PRECISION = 0.01;
 const MIN_HITS_FOR_STATS = 10;
 const MAX_CLICKS_PER_TARGET = 3;
+const FINGERPRINT_MIN_HITS = 12;
+const FINGERPRINT_HITS = 24;
+const FINGERPRINT_STEP_MS = 20;
+
+/**
+ * Empreinte FNV-1a des 24 premiers temps de réaction arrondis à 20 ms. Deux humains (ou la même personne)
+ * ne reproduisent jamais la même séquence ; un script qui rejoue un enregistrement, si.
+ */
+export function reactionFingerprint(reactions: number[]): string {
+  let h = 2166136261;
+  for (const r of reactions.slice(0, FINGERPRINT_HITS)) {
+    h ^= Math.round(r / FINGERPRINT_STEP_MS) + 1;
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
 
 function generate(seed: string): ReflexParams {
   const rng = createRng(`reflex:${seed}`);
@@ -199,6 +215,7 @@ function validate(seed: string, input: ReflexInput): ValidationResult {
     score,
     maxScore,
     flags,
+    ...(hits >= FINGERPRINT_MIN_HITS ? { fingerprint: reactionFingerprint(reactions) } : {}),
     stats: {
       hits,
       misses,

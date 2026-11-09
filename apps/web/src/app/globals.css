@@ -2,9 +2,146 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body {
-  height: 100%;
-  background: #0b1020;
-  color: #e6e9f2;
+/* Polices auto-hébergées (SIL Open Font License, voir public/fonts/glsc/OFL.txt) */
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/fonts/glsc/fredoka-latin-500-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/fonts/glsc/fredoka-latin-600-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/fonts/glsc/fredoka-latin-700-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/glsc/space-grotesk-latin-400-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/fonts/glsc/space-grotesk-latin-500-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/fonts/glsc/space-grotesk-latin-700-normal.woff2) format('woff2');
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    @apply bg-cream font-sans text-ink antialiased;
+    background-image: radial-gradient(rgba(17, 17, 17, 0.09) 1.2px, transparent 1.2px);
+    background-size: 22px 22px;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display font-bold;
+  }
+  ::selection {
+    background: #ffd84d;
+  }
+}
+
+@layer components {
+  /* Carte « sticker » : contour noir épais + ombre dure. */
+  .card {
+    @apply rounded-xl border-3 border-ink bg-white shadow-pop;
+  }
+  .card-sm {
+    @apply rounded-xl border-3 border-ink bg-white shadow-pop-sm;
+  }
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl border-3 border-ink bg-white px-4 py-2 font-display font-bold shadow-pop-sm transition;
+    @apply hover:-translate-y-px hover:shadow-pop active:translate-x-0.5 active:translate-y-0.5 active:shadow-none;
+    @apply disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-pop-sm;
+  }
+  .btn-ink {
+    @apply bg-ink text-white;
+  }
+  .btn-banana {
+    @apply bg-banana;
+  }
+  .btn-coral {
+    @apply bg-coral;
+  }
+  .btn-mint {
+    @apply bg-mint;
+  }
+  .btn-sky {
+    @apply bg-sky;
+  }
+  .btn-lilac {
+    @apply bg-lilac;
+  }
+  /* Étiquette inclinée, comme les pastilles de glsc.fr. */
+  .pill {
+    @apply inline-block -rotate-2 rounded-full border-3 border-ink bg-sky px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide shadow-pop-sm;
+  }
+  .field {
+    @apply w-full rounded-xl border-3 border-ink bg-white px-3 py-2 font-medium outline-none placeholder:text-ink/40 focus:shadow-pop-sm;
+  }
+  /* Titre avec surlignage corail, signature visuelle de glsc.fr. */
+  .hl {
+    background: linear-gradient(transparent 62%, #ff9478 62%);
+  }
+  .tab {
+    @apply flex-1 rounded-lg border-3 border-transparent px-2 py-1 font-display text-sm font-bold;
+  }
+  .tab-on {
+    @apply border-ink bg-banana shadow-pop-sm;
+  }
+}
+
+/* ---- Contrôles MapLibre aux couleurs du design system ---- */
+.maplibregl-ctrl-group {
+  border: 3px solid #111 !important;
+  border-radius: 12px !important;
+  box-shadow: 2px 2px 0 #000 !important;
+  background: #fff !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 3px solid #111 !important;
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 253, 240, 0.9) !important;
+  border: 2px solid #111;
+  border-radius: 8px 0 0 0;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 11px;
+}
+.maplibregl-popup-content {
+  border: 3px solid #111 !important;
+  border-radius: 12px !important;
+  box-shadow: 2px 2px 0 #000 !important;
+  padding: 6px 12px !important;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+}
+.maplibregl-popup-tip {
+  display: none;
 }

@@ -14,12 +14,16 @@ import { AppError } from '../http-error';
 /** Délai minimal entre deux démarrages de partie par joueur (anti-spam, avant le store Redis de la phase 5). */
 export const START_COOLDOWN_MS = 3_000;
 /** Plafond horaire de parties par joueur. */
-export const MAX_ATTACKS_PER_HOUR = 200;
+export const MAX_ATTACKS_PER_HOUR = 110; // une partie dure 30 s : au-delà de ~120/h, ce n'est plus un humain
 
 /**
  * Graine « signée » : HMAC(secret, attackId). Le client ne peut ni la choisir ni la prédire sans le secret,
  * et le serveur peut la re-dériver sans la croire : elle est liée à CETTE partie.
  */
+/** Empreinte HMAC d'une IP : permet de repérer les fermes de comptes sans conserver l'adresse. */
+export const hashIp = (secret: string, ip: string): string =>
+  createHmac('sha256', secret).update(`ip:${ip}`).digest('hex').slice(0, 16);
+
 export const deriveSeed = (secret: string, attackId: string): string =>
   createHmac('sha256', secret).update(`attack:${attackId}`).digest('hex').slice(0, 24);
 
@@ -132,6 +136,7 @@ export async function submitAttack(
   userId: string,
   attackId: string,
   rawInput: unknown,
+  ipHash: string | null = null,
 ): Promise<AttackResult> {
   const client = await db.connect();
   try {
@@ -161,7 +166,7 @@ export async function submitAttack(
     const upd = await client.query<AttackRow>(
       `UPDATE attacks
        SET status = 'submitted', submitted_at = now(), score = $2, max_score = $3,
-           validated = $4, stats = $5, flags = $6, input = $7
+           validated = $4, stats = $5, flags = $6, input = $7, fingerprint = $8, ip_hash = $9
        WHERE id = $1
        RETURNING id, minigame, seed, status, score, max_score, validated, stats, 0 AS elapsed_ms`,
       [
@@ -172,6 +177,8 @@ export async function submitAttack(
         JSON.stringify(result.stats),
         result.flags,
         JSON.stringify(input),
+        result.fingerprint ?? null,
+        ipHash,
       ],
     );
     await client.query('COMMIT');

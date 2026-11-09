@@ -77,3 +77,15 @@ Idempotent : la même commande met à jour. Si nginx/apache occupe déjà les po
 - **Mode dégradé** : si Redis tombe, l'API reste lisible (copie Postgres), les parties sont scorées et enregistrées, leur effet est mis « en attente » puis rejoué automatiquement au retour de Redis (`/api/health` passe en `degraded`).
 - **Flux d'événements** : captures persistées (table `events`, une par attaque) et diffusées à tous, `GET /api/events` pour l'historique.
 - **Test de charge** : `pnpm --filter @conquest/server loadtest -- --base http://localhost:3001 --players 1000 --attackers 300` (comptes, sockets, vraies parties, mesure de la latence de diffusion). Résultat de référence en local (1 000 sockets, 300 parties) : connexion p95 ≈ 300 ms, soumission p95 ≈ 13 ms, latence des deltas p95 ≈ 24 ms, 0 erreur.
+
+## Classements, saisons, anti-triche (phase 5)
+
+- **Classements** en sorted sets Redis par saison : joueurs (global et par pays), nations, clans. Points : influence apportée + bonus de capture (`attackPoints`), plus le **revenu des territoires** (valeur cumulée des villes tenues, versée toutes les 5 min, un seul versement par tranche même avec plusieurs processus). Attribution **atomique et idempotente** (script Lua) ; write-behind vers `season_scores`, reconstruction depuis Postgres si Redis est vide, repli sur Postgres si Redis est tombé.
+- **Saisons** : durée `SEASON_WEEKS` (4 par défaut). À l'échéance, un verrou inter-processus suspend les nouvelles parties (503), fige le podium, remet chaque ville à la faction de son pays (Postgres et Redis), ouvre la saison suivante et prévient tous les clients par Socket.IO. Comptes, clans et historique des parties survivent.
+- **Anti-triche renforcé** (en plus de la validation déterministe) : empreinte de réactions pour détecter le **rejeu d'un enregistrement**, score statistiquement aberrant (z-score en ligne, algorithme de Welford), **fermes de comptes** (IP hachée par HMAC, jamais stockée en clair), limite de débit **par joueur** avec compteurs partagés dans Redis. Les signaux alimentent une suspicion qui décroît de moitié par jour ; au-delà du seuil le joueur est en **shadow ban** (parties jugées normalement, résultat plausible, mais aucun effet sur la carte ni le classement). Chaque attaque n'est analysée qu'une fois, même rejouée.
+- **Revue des suspects** : `docker compose exec server node dist/cli/anticheat.js report` · réhabilitation d'un faux positif : `... anticheat.js unban <userId>`.
+- API : `GET /api/season`, `GET /api/seasons`, `GET /api/leaderboards/{players,nations,clans}?country=&limit=&offset=`, `GET /api/leaderboards/me`.
+
+## Style
+
+L'interface reprend le design de glsc.fr : fond crème pointillé, contours noirs de 3 px, ombres dures décalées, pastels (banane, menthe, corail, ciel, pêche, lilas), titres en Fredoka et texte en Space Grotesk (auto-hébergées, licence OFL). Les jetons sont dans `apps/web/tailwind.config.ts` et les classes réutilisables (`card`, `btn`, `pill`, `field`) dans `apps/web/src/app/globals.css`. La carte reprend l'habillage : mer bleu ciel, terres crème, contours noirs.

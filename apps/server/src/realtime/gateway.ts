@@ -8,6 +8,7 @@ import {
   type ClientToServerEvents,
   type Faction,
   type GameEvent,
+  type SeasonInfo,
   type ServerEnv,
   type ServerToClientEvents,
   type TileSnapshot,
@@ -170,6 +171,7 @@ export function attachGateway(
     online: () => io.engine.clientsCount,
     delta: (tile: string, d: CityDelta) => void io.to(room(tile)).emit('delta', d),
     event: (e: GameEvent) => void io.to('feed').emit('event', e),
+    season: (season: SeasonInfo, reset: boolean) => void io.emit('season', { season, reset }),
     close: async () => {
       clearInterval(presence);
       await io.close();

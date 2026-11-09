@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttackResult, AttackStartResponse, City, ReflexParams } from '@conquest/shared';
 import { ApiError, startAttack, submitAttack } from '@/lib/api';
+import { Spark, Star } from './Decor';
 import { ReflexGame } from './ReflexGame';
 
 type Phase =
@@ -13,18 +14,18 @@ type Phase =
   | { kind: 'error'; message: string };
 
 const RATING_COLOR: Record<AttackResult['rating'], string> = {
-  S: 'text-amber-300',
-  A: 'text-emerald-400',
-  B: 'text-sky-400',
-  C: 'text-slate-300',
-  D: 'text-slate-500',
+  S: 'bg-banana',
+  A: 'bg-mint',
+  B: 'bg-sky',
+  C: 'bg-peach',
+  D: 'bg-white',
 };
 
 function EffectLine({ result, cityName }: { result: AttackResult; cityName: string }) {
   const fx = result.effect;
   if (!fx) {
     return (
-      <p className="mt-3 text-xs text-amber-400">
+      <p className="card-sm mt-4 bg-banana px-3 py-2 text-sm font-bold">
         Score enregistré : l’effet sur la carte sera appliqué dès que le monde sera de nouveau
         disponible.
       </p>
@@ -32,23 +33,23 @@ function EffectLine({ result, cityName }: { result: AttackResult; cityName: stri
   }
   if (fx.captured) {
     return (
-      <p className="mt-3 text-sm font-semibold text-emerald-400">
-        🏴 {cityName} capturée ! (+{fx.gain} d’influence)
+      <p className="card-sm mt-4 bg-mint px-3 py-2 font-display text-lg font-bold">
+        🏴 {cityName} capturée ! <span className="text-sm">(+{fx.gain} d’influence)</span>
       </p>
     );
   }
   if (fx.defended) {
     return (
-      <p className="mt-3 text-sm text-sky-300">
+      <p className="card-sm mt-4 bg-sky px-3 py-2 text-sm font-bold">
         🛡 Défense renforcée : +{fx.gain} (occupant : {fx.ownerInfluence})
       </p>
     );
   }
   return (
-    <p className="mt-3 text-sm text-slate-300">
+    <p className="card-sm mt-4 bg-white px-3 py-2 text-sm font-bold">
       +{fx.gain} d’influence
       {fx.shielded ? ' — ville sous bouclier, capture impossible pour le moment' : ''}
-      <span className="block text-xs text-slate-500">
+      <span className="block text-xs font-medium text-ink/60">
         Occupant à dépasser : {fx.ownerInfluence}
       </span>
     </p>
@@ -122,13 +123,21 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
   }, []);
 
   return (
-    <div className="absolute inset-0 z-30 grid place-items-center bg-slate-950/90 p-4 backdrop-blur-sm">
+    <div
+      className="absolute inset-0 z-30 grid place-items-center overflow-y-auto bg-cream p-4"
+      style={{
+        backgroundImage: 'radial-gradient(rgba(17,17,17,0.09) 1.2px, transparent 1.2px)',
+        backgroundSize: '22px 22px',
+      }}
+    >
       <div className="flex w-full max-w-xl flex-col items-center gap-4">
-        <h2 className="text-lg font-bold tracking-wide">
-          Attaque sur <span className="text-sky-300">{city.name}</span>
+        <h2 className="text-3xl uppercase">
+          Attaque sur <span className="hl">{city.name}</span>
         </h2>
 
-        {phase.kind === 'starting' && <p className="text-slate-400">Préparation…</p>}
+        {phase.kind === 'starting' && (
+          <p className="font-display text-xl font-bold">Préparation…</p>
+        )}
 
         {phase.kind === 'playing' && (
           <ReflexGame
@@ -145,65 +154,59 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
         )}
 
         {phase.kind === 'result' && (
-          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-6 text-center">
-            {phase.result.validated ? (
-              <>
-                <p className={`text-7xl font-black ${RATING_COLOR[phase.result.rating]}`}>
-                  {phase.result.rating}
-                </p>
-                <p className="mt-2 text-3xl font-bold">
-                  {phase.result.score}
-                  <span className="text-base font-normal text-slate-500">
-                    {' '}
-                    / {phase.result.maxScore}
-                  </span>
-                </p>
-                <p className="mt-3 text-sm text-slate-400">
-                  {phase.result.stats['hits']} cibles touchées · {phase.result.stats['misses']}{' '}
-                  ratés · réaction moyenne {phase.result.stats['avgReactionMs']} ms
-                </p>
-                <EffectLine result={phase.result} cityName={city.name} />
-              </>
-            ) : (
-              <>
-                <p className="text-4xl">⚠️</p>
-                <p className="mt-2 font-semibold">Partie non validée</p>
-                <p className="mt-1 text-sm text-slate-400">
-                  Le serveur n’a pas pu valider cette partie. Réessaie sans interruption.
-                </p>
-              </>
-            )}
-            <div className="mt-5 flex gap-2">
-              <button
-                onClick={() => setRound((r) => r + 1)}
-                className="flex-1 rounded-lg bg-sky-600 py-2 font-semibold hover:bg-sky-500"
-              >
-                Rejouer
-              </button>
-              <button
-                onClick={onClose}
-                className="flex-1 rounded-lg border border-slate-700 py-2 hover:bg-slate-800"
-              >
-                Fermer
-              </button>
+          <div className="relative w-full max-w-sm">
+            <Star className="absolute -right-5 -top-7 h-14 w-14 rotate-12" />
+            <Spark className="absolute -left-6 top-16 h-10 w-10" />
+            <div className="card bg-white p-6 text-center">
+              {phase.result.validated ? (
+                <>
+                  <p
+                    className={`mx-auto grid h-24 w-24 -rotate-3 place-items-center rounded-2xl border-3 border-ink font-display text-7xl font-bold shadow-pop ${RATING_COLOR[phase.result.rating]}`}
+                  >
+                    {phase.result.rating}
+                  </p>
+                  <p className="mt-3 font-display text-4xl font-bold">
+                    {phase.result.score}
+                    <span className="text-lg font-medium text-ink/50">
+                      {' '}
+                      / {phase.result.maxScore}
+                    </span>
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-ink/70">
+                    {phase.result.stats['hits']} cibles touchées · {phase.result.stats['misses']}{' '}
+                    ratés · réaction moyenne {phase.result.stats['avgReactionMs']} ms
+                  </p>
+                  <EffectLine result={phase.result} cityName={city.name} />
+                </>
+              ) : (
+                <>
+                  <p className="text-5xl">⚠️</p>
+                  <p className="mt-2 font-display text-2xl font-bold">Partie non validée</p>
+                  <p className="mt-1 text-sm font-medium text-ink/70">
+                    Le serveur n’a pas pu valider cette partie. Réessaie sans interruption.
+                  </p>
+                </>
+              )}
+              <div className="mt-5 flex gap-2">
+                <button onClick={() => setRound((r) => r + 1)} className="btn btn-banana flex-1">
+                  Rejouer
+                </button>
+                <button onClick={onClose} className="btn flex-1">
+                  Fermer
+                </button>
+              </div>
             </div>
           </div>
         )}
 
         {phase.kind === 'error' && (
-          <div className="w-full max-w-sm rounded-2xl border border-red-900 bg-slate-900 p-6 text-center">
-            <p className="text-red-300">{phase.message}</p>
+          <div className="card w-full max-w-sm bg-white p-6 text-center">
+            <p className="font-display text-xl font-bold">{phase.message}</p>
             <div className="mt-4 flex gap-2">
-              <button
-                onClick={() => setRound((r) => r + 1)}
-                className="flex-1 rounded-lg bg-sky-600 py-2 font-semibold hover:bg-sky-500"
-              >
+              <button onClick={() => setRound((r) => r + 1)} className="btn btn-banana flex-1">
                 Réessayer
               </button>
-              <button
-                onClick={onClose}
-                className="flex-1 rounded-lg border border-slate-700 py-2 hover:bg-slate-800"
-              >
+              <button onClick={onClose} className="btn flex-1">
                 Fermer
               </button>
             </div>

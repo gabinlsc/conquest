@@ -8,6 +8,11 @@ import type {
   ClanSummary,
   Country,
   GameEvent,
+  LeaderboardKind,
+  LeaderboardResponse,
+  MyRanks,
+  PastSeason,
+  SeasonInfo,
   MeResponse,
 } from '@conquest/shared';
 
@@ -91,3 +96,14 @@ export const submitAttack = (attackId: string, input: unknown) =>
 
 export const fetchRecentEvents = (signal?: AbortSignal) =>
   getJson<GameEvent[]>('/events?limit=20', signal);
+
+// ---------- Saisons & classements ----------
+
+export const fetchSeason = () => getJson<SeasonInfo>('/season');
+export const fetchPastSeasons = () => getJson<PastSeason[]>('/seasons');
+export const fetchLeaderboard = (kind: LeaderboardKind, country?: string, signal?: AbortSignal) =>
+  getJson<LeaderboardResponse>(
+    `/leaderboards/${kind}?limit=50${country ? `&country=${encodeURIComponent(country)}` : ''}`,
+    signal,
+  );
+export const fetchMyRanks = (signal?: AbortSignal) => getJson<MyRanks>('/leaderboards/me', signal);

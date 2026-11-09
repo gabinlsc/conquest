@@ -35,6 +35,9 @@ export const serverEnvSchema = z.object({
   /** Secret de signature des cookies de session et des seeds de mini-jeux. */
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET doit faire au moins 32 caractères'),
 
+  /** Durée d'une saison, en semaines (à la fin : classement figé, carte remise à zéro). */
+  SEASON_WEEKS: z.coerce.number().positive().max(52).default(4),
+
   // OAuth (Phase 2) : optionnels, le provider est désactivé s'il n'est pas configuré.
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,

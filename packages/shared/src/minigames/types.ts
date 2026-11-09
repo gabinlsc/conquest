@@ -15,6 +15,11 @@ export interface ValidationResult {
    * Jamais renvoyés au client : ils aideraient un tricheur à régler son bot.
    */
   flags: string[];
+  /**
+   * Empreinte du « style de jeu » (temps de réaction quantifiés). Deux parties DIFFÉRENTES (graines
+   * différentes) qui produisent la même empreinte trahissent un enregistrement rejoué par un script.
+   */
+  fingerprint?: string;
 }
 
 /**

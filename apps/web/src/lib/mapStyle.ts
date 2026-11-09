@@ -2,11 +2,11 @@ import type { DataDrivenPropertyValueSpecification, StyleSpecification } from 'm
 import { RARITIES, type Rarity } from '@conquest/shared';
 
 /** Couleur d'une ville sans propriétaire connu. */
-export const NEUTRAL_COLOR = '#5b6785';
+export const NEUTRAL_COLOR = '#d9d4c3';
 
 /**
- * Fond de carte 100 % local (frontières Natural Earth + polices statiques) :
- * aucune dépendance à un service de tuiles tiers.
+ * Fond de carte 100 % local (frontières Natural Earth + polices statiques) : aucune dépendance à un service
+ * de tuiles. Habillage « glsc » : mer bleu ciel, terres crème, contours noirs de dessin animé.
  */
 export const baseStyle: StyleSpecification = {
   version: 8,
@@ -15,15 +15,16 @@ export const baseStyle: StyleSpecification = {
     countries: { type: 'geojson', data: '/geo/countries.json' },
   },
   layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#070b17' } },
-    { id: 'land', type: 'fill', source: 'countries', paint: { 'fill-color': '#111a30' } },
+    { id: 'background', type: 'background', paint: { 'background-color': '#b9e1ff' } },
+    { id: 'land', type: 'fill', source: 'countries', paint: { 'fill-color': '#fffdf0' } },
     {
       id: 'borders',
       type: 'line',
       source: 'countries',
       paint: {
-        'line-color': '#2a3858',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.4, 8, 1.2],
+        'line-color': '#111111',
+        'line-opacity': 0.85,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.6, 8, 1.8],
       },
     },
   ],
@@ -31,10 +32,10 @@ export const baseStyle: StyleSpecification = {
 
 /** Rayon de base (px) par rareté, à zoom faible puis à zoom élevé. */
 const RADIUS: Record<Rarity, [number, number]> = {
-  common: [1.6, 7],
-  rare: [2.4, 9],
-  epic: [3.4, 12],
-  legendary: [4.6, 15],
+  common: [1.8, 7],
+  rare: [2.6, 9],
+  epic: [3.6, 12],
+  legendary: [4.8, 15],
 };
 
 /** Expression de rayon : interpolation par zoom dont chaque borne dépend de la rareté. */

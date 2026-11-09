@@ -3,4 +3,5 @@ export * from './capture';
 export * from './env';
 export * from './health';
 export * from './minigames';
+export * from './season';
 export * from './world';

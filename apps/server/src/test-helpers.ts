@@ -15,9 +15,12 @@ export const testEnv = (extra: Record<string, string> = {}): ServerEnv =>
 
 import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
+import { AntiCheatService } from './anticheat/service';
 import { EffectService } from './attacks/effects';
 import { EventService } from './events/service';
 import { attachGateway, type Gateway } from './realtime/gateway';
+import { LeaderboardService } from './seasons/leaderboards';
+import { SeasonService } from './seasons/service';
 import { FactionDirectory } from './world/factions';
 import { CityIndex } from './world/geo';
 import { createRedis } from './world/redis';
@@ -37,9 +40,28 @@ export async function createTestWorld(
   const factions = await FactionDirectory.load(pool);
   const store = new WorldStore(redis, geo);
   const events = new EventService(pool);
-  const effects = new EffectService({ db: pool, store, geo, factions, events });
+  const leaderboards = new LeaderboardService(redis, pool, factions);
+  const anticheat = new AntiCheatService(pool, redis);
+  const seasons = new SeasonService({
+    db: pool,
+    store,
+    geo,
+    leaderboards,
+    durationMs: 14 * 86_400_000,
+  });
+  const effects = new EffectService({
+    db: pool,
+    store,
+    geo,
+    factions,
+    events,
+    leaderboards,
+    seasons,
+    anticheat,
+  });
   await store.hydrateIfEmpty(pool);
-  return { store, geo, factions, effects, events, redisReady };
+  await seasons.refresh();
+  return { store, geo, factions, effects, events, leaderboards, seasons, anticheat, redisReady };
 }
 
 export function attachTestGateway(
@@ -56,5 +78,6 @@ export function attachTestGateway(
     presenceIntervalMs: 200,
   });
   world.effects.publisher = gw;
+  world.seasons.publisher = gw;
   return gw;
 }

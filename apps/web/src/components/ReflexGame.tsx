@@ -118,17 +118,22 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
   return (
     <div className="flex w-full flex-col items-center gap-3 select-none">
       <div className="flex w-[min(90vw,70vh)] items-center justify-between text-sm">
-        <span className="font-mono text-lg font-bold text-sky-300">{liveScore}</span>
-        <span className="text-slate-400">
+        <span className="card-sm bg-banana px-3 py-0.5 font-display text-2xl font-bold">
+          {liveScore}
+        </span>
+        <span className="card-sm bg-white px-3 py-0.5 font-display text-lg font-bold">
           {Math.max(0, Math.ceil((params.durationMs - now) / 1000))} s
         </span>
-        <button onClick={onAbort} className="text-xs text-slate-500 hover:text-slate-300">
+        <button
+          onClick={onAbort}
+          className="text-sm font-bold underline decoration-coral decoration-4 underline-offset-4"
+        >
           Abandonner
         </button>
       </div>
-      <div className="h-1.5 w-[min(90vw,70vh)] overflow-hidden rounded bg-slate-800">
+      <div className="h-4 w-[min(90vw,70vh)] overflow-hidden rounded-full border-3 border-ink bg-white">
         <div
-          className="h-full bg-sky-500"
+          className="h-full bg-mint"
           style={{ width: `${Math.max(0, 1 - now / params.durationMs) * 100}%` }}
         />
       </div>
@@ -136,11 +141,17 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
       <div
         ref={field}
         onPointerDown={onPointerDown}
-        className="relative cursor-crosshair overflow-hidden rounded-xl border border-slate-700 bg-slate-950"
-        style={{ width: 'min(90vw, 70vh)', aspectRatio: '1', touchAction: 'none' }}
+        className="relative cursor-crosshair overflow-hidden rounded-xl border-3 border-ink bg-cream shadow-pop-lg"
+        style={{
+          width: 'min(90vw, 70vh)',
+          aspectRatio: '1',
+          touchAction: 'none',
+          backgroundImage: 'radial-gradient(rgba(17,17,17,0.12) 1.2px, transparent 1.2px)',
+          backgroundSize: '22px 22px',
+        }}
       >
         {!playing && (
-          <div className="absolute inset-0 grid place-items-center text-7xl font-black text-sky-400">
+          <div className="absolute inset-0 grid place-items-center font-display text-8xl font-bold text-coral [-webkit-text-stroke:3px_#111]">
             {countdown || 'GO'}
           </div>
         )}
@@ -149,7 +160,7 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
           return (
             <div
               key={t.id}
-              className="pointer-events-none absolute rounded-full border-2 border-rose-400/90 bg-rose-500/20"
+              className="pointer-events-none absolute rounded-full border-3 border-ink bg-coral/30"
               style={{
                 left: `${t.x * 100}%`,
                 top: `${t.y * 100}%`,
@@ -159,7 +170,7 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
               }}
             >
               <div
-                className="absolute inset-0 m-auto rounded-full bg-rose-500"
+                className="absolute inset-0 m-auto rounded-full border-2 border-ink bg-coral"
                 style={{ width: `${(1 - life) * 80}%`, height: `${(1 - life) * 80}%` }}
               />
             </div>
@@ -171,7 +182,7 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
             <div
               key={m.id}
               className={`pointer-events-none absolute h-5 w-5 rounded-full border-2 ${
-                m.hit ? 'border-emerald-400' : 'border-slate-500'
+                m.hit ? 'border-ink bg-mint' : 'border-ink/50 bg-white/60'
               }`}
               style={{
                 left: `${m.x * 100}%`,
@@ -181,7 +192,7 @@ export function ReflexGame({ params, onFinish, onAbort }: Props) {
             />
           ))}
       </div>
-      <p className="text-xs text-slate-500">Touche les cibles avant qu’elles disparaissent.</p>
+      <p className="text-sm font-bold">Touche les cibles avant qu’elles disparaissent !</p>
     </div>
   );
 }

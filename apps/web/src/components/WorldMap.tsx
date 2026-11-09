@@ -3,11 +3,19 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import * as maplibregl from 'maplibre-gl';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { tilesForBounds, type City, type Faction, type GameEvent } from '@conquest/shared';
-import { fetchCitiesGeoJson, fetchCity } from '@/lib/api';
+import { Trophy } from 'lucide-react';
+import {
+  tilesForBounds,
+  type City,
+  type Faction,
+  type GameEvent,
+  type SeasonInfo,
+} from '@conquest/shared';
+import { fetchCitiesGeoJson, fetchCity, fetchSeason } from '@/lib/api';
 import { createRealtime, type ConnectionStatus, type RealtimeSocket } from '@/lib/realtime';
 import { NEUTRAL_COLOR, baseStyle, radiusExpression } from '@/lib/mapStyle';
 import { CityPanel } from './CityPanel';
+import { LeaderboardPanel, countdown } from './LeaderboardPanel';
 import { LiveFeed } from './LiveFeed';
 import { SearchBox } from './SearchBox';
 import { AccountMenu } from './AccountMenu';
@@ -42,6 +50,9 @@ export default function WorldMap() {
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [forceOnboarding, setForceOnboarding] = useState(false);
   const [attacking, setAttacking] = useState<City | null>(null);
+  const [showBoard, setShowBoard] = useState(false);
+  const [season, setSeason] = useState<SeasonInfo | null>(null);
+  const [seasonBanner, setSeasonBanner] = useState<string | null>(null);
 
   const select = useCallback(async (id: number, fly = false) => {
     const map = mapRef.current;
@@ -152,6 +163,22 @@ export default function WorldMap() {
     );
     rt.on('feed:init', (list) => setEvents(list));
     rt.on('presence', (p) => setOnline(p.online));
+    rt.on('season', ({ season: next, reset }) => {
+      setSeason(next);
+      if (!reset) return;
+      // Nouvelle saison : la carte entière a été remise à zéro côté serveur. On efface tout ce qu'on savait,
+      // on se désabonne puis on se réabonne (le serveur renvoie alors des instantanés tout neufs).
+      knownRef.current.clear();
+      map.removeFeatureState({ source: SRC });
+      setEvents([]);
+      setSeasonBanner(`${next.name} commence ! La carte repart de zéro.`);
+      setTimeout(() => setSeasonBanner(null), 8_000);
+      rt.emit('sub', []);
+      syncTiles(true);
+      if (selectedRef.current !== null) refreshSelected(selectedRef.current);
+    });
+
+    fetchSeason().then(setSeason, () => undefined);
 
     let moveTimer: ReturnType<typeof setTimeout> | undefined;
     map.on('moveend', () => {
@@ -184,17 +211,17 @@ export default function WorldMap() {
               'circle-color': [
                 'step',
                 ['get', 'point_count'],
-                '#2f5d9e',
+                '#c3a6ff',
                 50,
-                '#6a4fb3',
+                '#ffd84d',
                 300,
-                '#b0457a',
+                '#ff9478',
               ],
-              'circle-opacity': 0.82,
+              'circle-opacity': 1,
               'circle-radius': ['step', ['get', 'point_count'], 13, 20, 17, 100, 22, 400, 28],
-              'circle-stroke-color': '#ffffff',
-              'circle-stroke-opacity': 0.35,
-              'circle-stroke-width': 1,
+              'circle-stroke-color': '#111111',
+              'circle-stroke-opacity': 1,
+              'circle-stroke-width': 2.5,
             },
           });
           map.addLayer({
@@ -208,7 +235,7 @@ export default function WorldMap() {
               'text-size': 12,
               'text-allow-overlap': true,
             },
-            paint: { 'text-color': '#ffffff' },
+            paint: { 'text-color': '#111111' },
           });
           map.addLayer({
             id: 'city-points',
@@ -219,19 +246,14 @@ export default function WorldMap() {
               // Couleur data-driven : lue dans le feature-state (poussé depuis /world/state, puis par les deltas temps réel).
               'circle-color': ['coalesce', ['feature-state', 'color'], NEUTRAL_COLOR],
               'circle-radius': radiusExpression(),
-              'circle-stroke-color': '#ffffff',
+              'circle-stroke-color': '#111111',
               'circle-stroke-width': [
                 'case',
                 ['boolean', ['feature-state', 'selected'], false],
-                2.5,
-                0.6,
+                3.5,
+                1.4,
               ],
-              'circle-stroke-opacity': [
-                'case',
-                ['boolean', ['feature-state', 'selected'], false],
-                1,
-                0.45,
-              ],
+              'circle-stroke-opacity': 1,
             },
           });
           map.addLayer({
@@ -251,9 +273,9 @@ export default function WorldMap() {
               'text-optional': true,
             },
             paint: {
-              'text-color': '#dbe3f5',
-              'text-halo-color': '#070b17',
-              'text-halo-width': 1.4,
+              'text-color': '#111111',
+              'text-halo-color': '#fffdf0',
+              'text-halo-width': 1.6,
             },
           });
 
@@ -326,17 +348,37 @@ export default function WorldMap() {
 
   const owner = selected?.ownerFaction ?? undefined;
 
-  // Règles d'affichage du bouton ; le serveur re-vérifie TOUT (faction, ville adverse, cooldown).
+  // Règles d'affichage du bouton ; le serveur re-vérifie TOUT (faction, cooldown, saison).
   const myFactionId = me?.faction?.id ?? null;
-  const attackAction = !selected
-    ? { label: 'Attaquer', enabled: false, onClick: () => undefined }
+  const attackAction: React.ComponentProps<typeof CityPanel>['action'] = !selected
+    ? { label: 'Attaquer', enabled: false, onClick: () => undefined, kind: 'other' }
     : !me?.user
-      ? { label: 'Joue pour attaquer', enabled: true, onClick: () => setForceOnboarding(true) }
+      ? {
+          label: 'Joue pour attaquer',
+          enabled: true,
+          onClick: () => setForceOnboarding(true),
+          kind: 'other',
+        }
       : myFactionId === null
-        ? { label: 'Rejoins une faction pour attaquer', enabled: false, onClick: () => undefined }
+        ? {
+            label: 'Rejoins une faction pour attaquer',
+            enabled: false,
+            onClick: () => undefined,
+            kind: 'other',
+          }
         : selected.ownerFactionId === myFactionId
-          ? { label: 'Défendre', enabled: true, onClick: () => setAttacking(selected) }
-          : { label: 'Attaquer', enabled: true, onClick: () => setAttacking(selected) };
+          ? {
+              label: 'Défendre',
+              enabled: true,
+              onClick: () => setAttacking(selected),
+              kind: 'defend',
+            }
+          : {
+              label: 'Attaquer',
+              enabled: true,
+              onClick: () => setAttacking(selected),
+              kind: 'attack',
+            };
 
   return (
     <div className="relative h-full w-full">
@@ -344,13 +386,26 @@ export default function WorldMap() {
         <div ref={container} className="h-full w-full" />
       </div>
 
-      <header className="pointer-events-none absolute left-4 top-4 flex flex-col gap-3">
-        <div className="pointer-events-auto">
-          <h1 className="text-2xl font-black tracking-[0.3em]">CONQUEST</h1>
+      <header className="pointer-events-none absolute left-4 top-4 z-10 flex flex-col items-start gap-3">
+        <div className="card pointer-events-auto -rotate-1 bg-banana px-4 py-2">
+          <h1 className="text-3xl uppercase leading-none tracking-wide">
+            Con<span className="hl">quest</span>
+          </h1>
           {counts && (
-            <p className="text-xs text-slate-400">{counts.cities.toLocaleString('fr-FR')} villes</p>
+            <p className="mt-0.5 text-xs font-bold">
+              {counts.cities.toLocaleString('fr-FR')} villes à conquérir
+            </p>
           )}
         </div>
+        {season && (
+          <button
+            onClick={() => setShowBoard((v) => !v)}
+            className="pill pointer-events-auto cursor-pointer bg-lilac hover:-translate-y-px"
+            title="Voir les classements"
+          >
+            {season.name} · {countdown(season.endsAt, now)}
+          </button>
+        )}
         {status === 'ready' && (
           <div className="pointer-events-auto">
             <SearchBox onPick={(id) => void select(id, true)} />
@@ -358,9 +413,25 @@ export default function WorldMap() {
         )}
       </header>
 
-      <div className="absolute right-4 top-4 z-10">
+      <div className="absolute right-4 top-4 z-20 flex items-start gap-2">
+        <button
+          onClick={() => setShowBoard((v) => !v)}
+          className="btn btn-lilac"
+          aria-label="Classements"
+        >
+          <Trophy className="h-4 w-4" strokeWidth={3} />
+          <span className="hidden sm:inline">Classements</span>
+        </button>
         <AccountMenu onPlay={() => setForceOnboarding(true)} />
       </div>
+
+      {showBoard && <LeaderboardPanel now={now} onClose={() => setShowBoard(false)} />}
+
+      {seasonBanner && (
+        <div className="card absolute left-1/2 top-24 z-30 -translate-x-1/2 -rotate-1 bg-mint px-5 py-3 text-center font-display text-lg font-bold">
+          🎉 {seasonBanner}
+        </div>
+      )}
 
       {authStatus === 'ready' && me && !me.user && (forceOnboarding || !onboardingDismissed) && (
         <OnboardingModal
@@ -376,18 +447,17 @@ export default function WorldMap() {
       )}
 
       {status === 'loading' && (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center text-slate-400">
-          Chargement du monde…
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <p className="card bg-white px-5 py-3 font-display text-xl font-bold">
+            Chargement du monde…
+          </p>
         </div>
       )}
       {status === 'error' && (
-        <div className="absolute inset-x-0 top-1/3 mx-auto w-80 rounded-lg bg-red-950/90 p-4 text-center text-sm">
-          <p className="mb-3">Impossible de charger les villes.</p>
-          <p className="mb-3 text-xs text-red-300">{error}</p>
-          <button
-            className="rounded bg-red-600 px-3 py-1 font-semibold hover:bg-red-500"
-            onClick={() => setAttempt((a) => a + 1)}
-          >
+        <div className="card absolute inset-x-0 top-1/3 z-20 mx-auto w-80 bg-coral p-4 text-center">
+          <p className="font-display text-xl font-bold">Impossible de charger les villes.</p>
+          <p className="my-2 text-xs font-medium">{error}</p>
+          <button className="btn btn-banana" onClick={() => setAttempt((a) => a + 1)}>
             Réessayer
           </button>
         </div>

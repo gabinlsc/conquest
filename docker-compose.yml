@@ -46,6 +46,7 @@ services:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SERVER_PORT: 3001
+      SEASON_WEEKS: ${SEASON_WEEKS:-4}
       PUBLIC_URL: https://${DOMAIN:?}
       SESSION_SECRET: ${SESSION_SECRET:?}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { HealthResponse } from '@conquest/shared';
 import { buildApp } from './app';
+import { testEnv } from './test-helpers';
 
-const env = { NODE_ENV: 'test', LOG_LEVEL: 'silent' } as const;
+const env = testEnv();
 
 describe('GET /api/health', () => {
   it('répond ok quand la base répond', async () => {

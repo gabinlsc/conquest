@@ -8,6 +8,9 @@ import { fetchCitiesGeoJson, fetchCity, fetchWorldState } from '@/lib/api';
 import { NEUTRAL_COLOR, baseStyle, radiusExpression } from '@/lib/mapStyle';
 import { CityPanel } from './CityPanel';
 import { SearchBox } from './SearchBox';
+import { AccountMenu } from './AccountMenu';
+import { useAuth } from './AuthProvider';
+import { OnboardingModal } from './OnboardingModal';
 
 // Worker servi depuis /public (copié par scripts/copy-maplibre-worker.mjs).
 maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
@@ -26,6 +29,9 @@ export default function WorldMap() {
   const [counts, setCounts] = useState<{ cities: number; factions: number } | null>(null);
   const [selected, setSelected] = useState<City | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const { me, status: authStatus } = useAuth();
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [forceOnboarding, setForceOnboarding] = useState(false);
 
   /** Applique les propriétaires via feature-state : aucun rechargement de la source GeoJSON. */
   const applyOwners = useCallback((map: maplibregl.Map, state: WorldState) => {
@@ -262,6 +268,23 @@ export default function WorldMap() {
           </div>
         )}
       </header>
+
+      <div className="absolute right-4 top-4 z-10">
+        <AccountMenu onPlay={() => setForceOnboarding(true)} />
+      </div>
+
+      {authStatus === 'ready' && me && !me.user && (forceOnboarding || !onboardingDismissed) && (
+        <OnboardingModal
+          mode="guest"
+          onClose={() => {
+            setOnboardingDismissed(true);
+            setForceOnboarding(false);
+          }}
+        />
+      )}
+      {authStatus === 'ready' && me?.user && !me.user.countryCode && (
+        <OnboardingModal mode="country" />
+      )}
 
       {status === 'loading' && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center text-slate-400">

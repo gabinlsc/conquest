@@ -49,3 +49,11 @@ Idempotent : la même commande met à jour. Si nginx/apache occupe déjà les po
 - Tests d'intégration : `TEST_DATABASE_URL=postgres://… pnpm test` (la base ciblée est vidée).
 - Fond de carte 100 % local (Natural Earth, polices statiques) : aucune dépendance à un service de tuiles.
 - Attributions : GeoNames (CC BY 4.0), Natural Earth (domaine public), polices Open Sans (OFL).
+
+## Auth & factions (phase 2)
+
+- **Sessions** serveur (Postgres) : cookie `httpOnly` + `SameSite=Lax`, seul le hash SHA-256 du jeton est stocké, expiration glissante 30 j. Contrôle `Origin` sur les mutations (CSRF), rate limiting par IP.
+- **Invité** : `POST /api/auth/guest` (pays + pseudo facultatif) → rattaché d'office à la faction de son pays. Le pays est pré-rempli depuis `Accept-Language` puis confirmé par le joueur.
+- **OAuth Google / Discord** (code + PKCE, `state` signé) : un invité qui se connecte conserve son compte et sa progression. Un provider est actif seulement si ses variables `*_CLIENT_ID/SECRET` sont renseignées. URL de callback à déclarer chez le fournisseur : `https://<domaine>/api/auth/oauth/<google|discord>/callback`.
+- **Factions** : un joueur appartient à exactement une faction (pays par défaut, ou un clan). Clans ouverts ou sur invitation (code à 8 caractères), chef remplacé automatiquement, dissolution = les villes reviennent à leur pays. Changement de pays : une fois par semaine.
+- API : `GET/PATCH /api/me`, `POST /api/auth/logout`, `GET /api/clans`, `GET /api/clans/:id`, `POST /api/clans`, `POST /api/clans/:id/join`, `POST /api/clans/leave`.

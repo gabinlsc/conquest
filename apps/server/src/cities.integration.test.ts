@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { City, CityListResponse, WorldState } from '@conquest/shared';
+import type { City, CityListResponse } from '@conquest/shared';
 import { buildApp } from './app';
 import { testEnv } from './test-helpers';
 import { importGeonames } from './geonames/import';
@@ -39,9 +39,10 @@ describe.skipIf(!url)('import GeoNames + API villes', () => {
     expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
     expect(stats.statesCreated).toBe(0);
     const paris = await app.inject({ url: '/api/cities/2988507' });
-    const factions = (await app.inject({ url: '/api/world/state' })).json<WorldState>().factions;
-    const de = factions.find((f) => f.countryCode === 'DE');
-    expect(paris.json<City>().ownerFactionId).toBe(de?.id); // capture simulée toujours là
+    const deId = (
+      await pool.query<{ id: number }>("SELECT id FROM factions WHERE slug = 'country:de'")
+    ).rows[0]?.id;
+    expect(paris.json<City>().ownerFactionId).toBe(deId); // capture simulée toujours là
   });
 
   it('GET /cities/geojson : FeatureCollection triée par population, ETag/304', async () => {
@@ -94,11 +95,5 @@ describe.skipIf(!url)('import GeoNames + API villes', () => {
     });
     expect((await app.inject({ url: '/api/cities/1' })).statusCode).toBe(404);
     expect((await app.inject({ url: '/api/cities/abc' })).statusCode).toBe(400);
-  });
-
-  it('GET /world/state : factions de pays et propriétaires', async () => {
-    const state = (await app.inject({ url: '/api/world/state' })).json<WorldState>();
-    expect(state.factions.length).toBe(5);
-    expect(Object.keys(state.owners)).toHaveLength(7);
   });
 });

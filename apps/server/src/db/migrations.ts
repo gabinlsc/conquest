@@ -139,6 +139,30 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX attacks_city_idx ON attacks (city_id, started_at DESC);
     `,
   },
+  {
+    id: '004_effects_events',
+    sql: `
+      -- Effet d'une attaque sur le monde (influence, capture) et son état d'application.
+      -- applied_at NULL + validated = « en attente » : repris par le réconciliateur quand Redis revient.
+      ALTER TABLE attacks ADD COLUMN effect jsonb, ADD COLUMN applied_at timestamptz;
+      CREATE INDEX attacks_pending_idx ON attacks (submitted_at) WHERE validated AND applied_at IS NULL;
+
+      CREATE TABLE events (
+        id              bigserial PRIMARY KEY,
+        type            text NOT NULL,
+        -- UNIQUE : un événement par attaque, donc rejouer une attaque (idempotence) ne duplique jamais le flux.
+        attack_id       uuid UNIQUE REFERENCES attacks(id) ON DELETE SET NULL,
+        city_id         integer NOT NULL REFERENCES cities(geonames_id),
+        faction_id      integer REFERENCES factions(id) ON DELETE SET NULL,
+        from_faction_id integer REFERENCES factions(id) ON DELETE SET NULL,
+        user_id         uuid REFERENCES users(id) ON DELETE SET NULL,
+        -- Instantané complet (noms, couleurs) : le flux reste lisible même si un clan est dissous.
+        payload         jsonb NOT NULL,
+        created_at      timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX events_city_idx ON events (city_id, id DESC);
+    `,
+  },
 ];
 
 const LOCK_KEY = 727_001; // verrou advisory : un seul process migre à la fois

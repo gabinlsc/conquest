@@ -46,6 +46,8 @@ export function ratingFor(score: number, maxScore: number): Rating {
   return 'D';
 }
 
+import type { AttackEffect } from '../capture';
+
 // ---------- Contrats d'API des attaques ----------
 
 export interface AttackStartResponse<Params = unknown> {
@@ -59,6 +61,8 @@ export interface AttackStartResponse<Params = unknown> {
 }
 
 export interface AttackResult {
+  /** Effet sur le monde ; null/absent si la partie est invalide ou si l'effet est en attente (mode dégradé). */
+  effect?: AttackEffect | null;
   attackId: string;
   minigame: MiniGameId;
   validated: boolean;

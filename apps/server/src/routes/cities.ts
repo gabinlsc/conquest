@@ -6,11 +6,11 @@ import {
   type City,
   type CityListResponse,
   type Country,
-  type Faction,
   type Rarity,
-  type WorldState,
+  garrisonFor,
 } from '@conquest/shared';
 import type { Db } from '../db/pool';
+import type { WorldServices } from '../world/services';
 
 interface CityRowDb {
   geonames_id: number;
@@ -28,6 +28,10 @@ interface CityRowDb {
 }
 
 const toCity = (r: CityRowDb): City => ({
+  garrison: garrisonFor(r.value),
+  ownerFaction: null,
+  influence: [],
+  ver: 0,
   id: r.geonames_id,
   name: r.name,
   asciiName: r.ascii_name,
@@ -60,7 +64,11 @@ interface GeoJsonCache {
   version: string;
 }
 
-export function registerCityRoutes(api: FastifyInstance, db: Db): void {
+export function registerCityRoutes(
+  api: FastifyInstance,
+  db: Db,
+  world: WorldServices | undefined,
+): void {
   // ---- Géométrie statique, mise en cache mémoire + ETag ----
   // La géométrie ne change qu'à l'import GeoNames : on revalide la version au plus toutes les 60 s.
   let geoCache: GeoJsonCache | null = null;
@@ -118,33 +126,6 @@ export function registerCityRoutes(api: FastifyInstance, db: Db): void {
     return reply.type('application/json').send(geoCache.body);
   });
 
-  // ---- État dynamique (propriétaires). Redis prendra le relais en phase 4. ----
-  api.get('/world/state', async (_req, reply): Promise<WorldState> => {
-    const [factions, owners] = await Promise.all([
-      db.query<{
-        id: number;
-        kind: 'country' | 'clan';
-        name: string;
-        color: string;
-        country_code: string | null;
-      }>('SELECT id, kind, name, color, country_code FROM factions ORDER BY id'),
-      db.query<{ geonames_id: number; owner_faction_id: number }>(
-        'SELECT geonames_id, owner_faction_id FROM city_state WHERE owner_faction_id IS NOT NULL',
-      ),
-    ]);
-    reply.header('Cache-Control', 'no-cache');
-    return {
-      factions: factions.rows.map((f): Faction => ({
-        id: f.id,
-        kind: f.kind,
-        name: f.name,
-        color: f.color,
-        countryCode: f.country_code,
-      })),
-      owners: Object.fromEntries(owners.rows.map((o) => [o.geonames_id, o.owner_faction_id])),
-    };
-  });
-
   // ---- Liste / recherche paginée ----
   api.get('/cities', async (req): Promise<CityListResponse> => {
     const q = citiesQuerySchema.parse(req.query);
@@ -174,13 +155,61 @@ export function registerCityRoutes(api: FastifyInstance, db: Db): void {
     return { items: rows.map(toCity), total: Number(rows[0]?.total ?? 0) };
   });
 
+  /**
+   * Enrichit une ville avec son état chaud : propriétaire et influence viennent de Redis (à jour à la
+   * milliseconde) ; si Redis est indisponible, de la dernière copie persistée dans Postgres.
+   */
+  async function withLive(city: City): Promise<City> {
+    if (!world) return city;
+    let owner = city.ownerFactionId;
+    let ver = 0;
+    let influence: Record<number, number>;
+    try {
+      if (!world.store.isUp()) throw new Error('redis indisponible');
+      const live = await world.store.getCity(city.id);
+      if (!live) throw new Error('inconnue de redis');
+      owner = live.owner || null;
+      ver = live.ver;
+      influence = live.influence;
+    } catch {
+      const { rows } = await db.query<{ influence: { i?: Record<string, number> } }>(
+        'SELECT influence FROM city_state WHERE geonames_id = $1',
+        [city.id],
+      );
+      influence = Object.fromEntries(
+        Object.entries(rows[0]?.influence?.i ?? {}).map(([f, v]) => [Number(f), v]),
+      );
+    }
+    const list = await Promise.all(
+      Object.entries(influence).map(async ([f, value]) => {
+        const faction = await world.factions.get(Number(f));
+        return faction
+          ? { factionId: faction.id, name: faction.name, color: faction.color, value }
+          : null;
+      }),
+    );
+    const ownerFaction = owner ? await world.factions.get(owner) : null;
+    return {
+      ...city,
+      ownerFactionId: owner,
+      ownerFaction: ownerFaction
+        ? { id: ownerFaction.id, name: ownerFaction.name, color: ownerFaction.color }
+        : null,
+      ver,
+      influence: list
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+        .sort((a, b) => b.value - a.value),
+    };
+  }
+
   api.get<{ Params: { id: string } }>('/cities/:id', async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return reply.code(400).send({ error: 'id invalide' });
     const { rows } = await db.query<CityRowDb>(`${CITY_SELECT} WHERE c.geonames_id = $1`, [id]);
     const row = rows[0];
     if (!row) return reply.code(404).send({ error: 'ville introuvable' });
-    return toCity(row);
+    reply.header('Cache-Control', 'no-cache');
+    return withLive(toCity(row));
   });
 
   api.get('/countries', async (_req, reply): Promise<Country[]> => {

@@ -4,6 +4,7 @@ import { MINIGAME_IDS, type ServerEnv } from '@conquest/shared';
 import type { Db } from '../db/pool';
 import { getAttack, startAttack, submitAttack } from '../attacks/service';
 import { requireUser } from '../plugins/session';
+import type { WorldServices } from '../world/services';
 
 const startSchema = z.object({
   cityId: z.number().int().positive(),
@@ -13,7 +14,11 @@ const uuid = z.string().uuid();
 
 export function registerAttackRoutes(
   api: FastifyInstance,
-  { db, env }: { db: Db; env: Pick<ServerEnv, 'SESSION_SECRET'> },
+  {
+    db,
+    env,
+    world,
+  }: { db: Db; env: Pick<ServerEnv, 'SESSION_SECRET'>; world: WorldServices | undefined },
 ): void {
   api.post('/attacks', async (req, reply) => {
     const userId = requireUser(req);
@@ -27,7 +32,13 @@ export function registerAttackRoutes(
     const userId = requireUser(req);
     reply.header('Cache-Control', 'no-store');
     const body = z.object({ input: z.unknown() }).parse(req.body ?? {});
-    return submitAttack(db, userId, uuid.parse(req.params.id), body.input);
+    const attackId = uuid.parse(req.params.id);
+    const result = await submitAttack(db, userId, attackId, body.input);
+    if (!result.validated || !world) return result;
+    // L'effet est appliqué après l'enregistrement du score, de façon idempotente : un client qui réessaie
+    // (réponse perdue) ne double jamais l'influence. Si Redis est tombé, l'effet reste « en attente ».
+    const effect = await world.effects.applyById(attackId).catch(() => null);
+    return { ...result, effect };
   });
 
   api.get<{ Params: { id: string } }>('/attacks/:id', async (req, reply) => {

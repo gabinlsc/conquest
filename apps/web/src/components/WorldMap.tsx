@@ -3,10 +3,12 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import * as maplibregl from 'maplibre-gl';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { City, Faction, WorldState } from '@conquest/shared';
-import { fetchCitiesGeoJson, fetchCity, fetchWorldState } from '@/lib/api';
+import { tilesForBounds, type City, type Faction, type GameEvent } from '@conquest/shared';
+import { fetchCitiesGeoJson, fetchCity } from '@/lib/api';
+import { createRealtime, type ConnectionStatus, type RealtimeSocket } from '@/lib/realtime';
 import { NEUTRAL_COLOR, baseStyle, radiusExpression } from '@/lib/mapStyle';
 import { CityPanel } from './CityPanel';
+import { LiveFeed } from './LiveFeed';
 import { SearchBox } from './SearchBox';
 import { AccountMenu } from './AccountMenu';
 import { AttackOverlay } from './AttackOverlay';
@@ -27,22 +29,19 @@ export default function WorldMap() {
   const selectedRef = useRef<number | null>(null);
   const [status, setStatus] = useState<Status>('loading');
   const [error, setError] = useState<string | null>(null);
-  const [counts, setCounts] = useState<{ cities: number; factions: number } | null>(null);
+  const [counts, setCounts] = useState<{ cities: number } | null>(null);
+  const [events, setEvents] = useState<GameEvent[]>([]);
+  const [online, setOnline] = useState(0);
+  const [conn, setConn] = useState<ConnectionStatus>('connecting');
+  const [now, setNow] = useState(() => Date.now());
+  // Dernière version connue de chaque ville : les messages plus anciens (instantané tardif, delta en retard) sont ignorés.
+  const knownRef = useRef<Map<number, { owner: number; ver: number }>>(new Map());
   const [selected, setSelected] = useState<City | null>(null);
   const [attempt, setAttempt] = useState(0);
   const { me, status: authStatus } = useAuth();
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [forceOnboarding, setForceOnboarding] = useState(false);
   const [attacking, setAttacking] = useState<City | null>(null);
-
-  /** Applique les propriétaires via feature-state : aucun rechargement de la source GeoJSON. */
-  const applyOwners = useCallback((map: maplibregl.Map, state: WorldState) => {
-    factionsRef.current = new Map(state.factions.map((f) => [f.id, f]));
-    for (const [cityId, factionId] of Object.entries(state.owners)) {
-      const color = factionsRef.current.get(factionId)?.color;
-      if (color) map.setFeatureState({ source: SRC, id: Number(cityId) }, { color });
-    }
-  }, []);
 
   const select = useCallback(async (id: number, fly = false) => {
     const map = mapRef.current;
@@ -60,6 +59,16 @@ export default function WorldMap() {
     } catch {
       setSelected(null);
     }
+  }, []);
+
+  /** Recharge le détail de la ville ouverte (influence à jour) sans toucher à la sélection. */
+  const refreshSelected = useCallback((id: number) => {
+    fetchCity(id).then(
+      (city) => {
+        if (selectedRef.current === id) setSelected(city);
+      },
+      () => undefined,
+    );
   }, []);
 
   const clearSelection = useCallback(() => {
@@ -90,13 +99,72 @@ export default function WorldMap() {
       },
     });
     mapRef.current = map;
+
+    // ---- Temps réel : abonnements par tuile (zone visible) + flux d'événements ----
+    const rt: RealtimeSocket = createRealtime();
+    let sourceReady = false;
+    let tilesKey = '';
+
+    const paint = (id: number, owner: number) => {
+      const color = owner ? factionsRef.current.get(owner)?.color : undefined;
+      // `null` : aucune couleur -> retombe sur la couleur neutre de l'expression coalesce.
+      map.setFeatureState({ source: SRC, id }, { color: color ?? null });
+    };
+    const applyEntry = (id: number, owner: number, ver: number) => {
+      const known = knownRef.current.get(id);
+      // Un instantané de secours (ver 0, venu de Postgres) ne remplace jamais une version réelle.
+      const fresher = !known || ver > known.ver || (ver === 0 && known.ver === 0);
+      if (!fresher) return;
+      knownRef.current.set(id, { owner, ver });
+      paint(id, owner);
+    };
+    const syncTiles = (force = false) => {
+      if (!sourceReady) return;
+      let tiles: string[] = [];
+      // Zoom monde : les points sont regroupés en clusters, aucune couleur individuelle à afficher.
+      if (map.getZoom() >= 5.5) {
+        const b = map.getBounds();
+        tiles = tilesForBounds(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
+      }
+      const key = tiles.join(',');
+      if (!force && key === tilesKey) return;
+      tilesKey = key;
+      rt.emit('sub', tiles);
+    };
+
+    rt.on('connect', () => {
+      setConn('online');
+      syncTiles(true); // le serveur a perdu nos abonnements pendant la coupure : on les redemande
+    });
+    rt.on('disconnect', () => setConn('offline'));
+    rt.on('connect_error', () => setConn('offline'));
+    rt.on('tiles', (snap) => {
+      for (const f of snap.factions) factionsRef.current.set(f.id, f);
+      for (const [id, owner, ver] of snap.cities) applyEntry(id, owner, ver);
+    });
+    rt.on('delta', (d) => {
+      if (d.faction) factionsRef.current.set(d.faction.id, d.faction);
+      applyEntry(d.id, d.owner, d.ver);
+      if (selectedRef.current === d.id) refreshSelected(d.id);
+    });
+    rt.on('event', (e) =>
+      setEvents((prev) => [e, ...prev.filter((x) => x.id !== e.id)].slice(0, 20)),
+    );
+    rt.on('feed:init', (list) => setEvents(list));
+    rt.on('presence', (p) => setOnline(p.online));
+
+    let moveTimer: ReturnType<typeof setTimeout> | undefined;
+    map.on('moveend', () => {
+      clearTimeout(moveTimer);
+      moveTimer = setTimeout(() => syncTiles(), 150);
+    });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
 
     map.on('load', () => {
-      Promise.all([fetchCitiesGeoJson(abort.signal), fetchWorldState(abort.signal)])
-        .then(([geojson, world]) => {
+      fetchCitiesGeoJson(abort.signal)
+        .then((geojson) => {
           // Clustering natif MapLibre sur la source GeoJSON ; au-delà de clusterMaxZoom,
           // chaque ville devient un point individuel.
           map.addSource(SRC, {
@@ -189,9 +257,10 @@ export default function WorldMap() {
             },
           });
 
-          applyOwners(map, world);
-          setCounts({ cities: geojson.features.length, factions: world.factions.length });
+          setCounts({ cities: geojson.features.length });
           setStatus('ready');
+          sourceReady = true;
+          syncTiles(true);
         })
         .catch((err: unknown) => {
           if (abort.signal.aborted) return;
@@ -239,15 +308,23 @@ export default function WorldMap() {
 
     return () => {
       abort.abort();
+      clearTimeout(moveTimer);
+      rt.close();
+      knownRef.current.clear();
       popup.remove();
       map.remove();
       mapRef.current = null;
       selectedRef.current = null;
     };
-  }, [applyOwners, select, clearSelection, attempt]);
+  }, [select, clearSelection, refreshSelected, attempt]);
 
-  const owner =
-    selected?.ownerFactionId != null ? factionsRef.current.get(selected.ownerFactionId) : undefined;
+  // Rafraîchit les « il y a X s » du flux.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const owner = selected?.ownerFaction ?? undefined;
 
   // Règles d'affichage du bouton ; le serveur re-vérifie TOUT (faction, ville adverse, cooldown).
   const myFactionId = me?.faction?.id ?? null;
@@ -258,7 +335,7 @@ export default function WorldMap() {
       : myFactionId === null
         ? { label: 'Rejoins une faction pour attaquer', enabled: false, onClick: () => undefined }
         : selected.ownerFactionId === myFactionId
-          ? { label: 'Ville de ta faction', enabled: false, onClick: () => undefined }
+          ? { label: 'Défendre', enabled: true, onClick: () => setAttacking(selected) }
           : { label: 'Attaquer', enabled: true, onClick: () => setAttacking(selected) };
 
   return (
@@ -271,9 +348,7 @@ export default function WorldMap() {
         <div className="pointer-events-auto">
           <h1 className="text-2xl font-black tracking-[0.3em]">CONQUEST</h1>
           {counts && (
-            <p className="text-xs text-slate-400">
-              {counts.cities.toLocaleString('fr-FR')} villes · {counts.factions} nations
-            </p>
+            <p className="text-xs text-slate-400">{counts.cities.toLocaleString('fr-FR')} villes</p>
           )}
         </div>
         {status === 'ready' && (
@@ -321,6 +396,13 @@ export default function WorldMap() {
       {selected && (
         <CityPanel city={selected} owner={owner} onClose={clearSelection} action={attackAction} />
       )}
+      <LiveFeed
+        events={events}
+        online={online}
+        status={conn}
+        now={now}
+        onPick={(e: GameEvent) => void select(e.cityId, true)}
+      />
       {attacking && <AttackOverlay city={attacking} onClose={() => setAttacking(null)} />}
     </div>
   );

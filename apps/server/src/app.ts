@@ -5,9 +5,11 @@ import { ZodError } from 'zod';
 import type { HealthResponse, ServerEnv } from '@conquest/shared';
 import { AppError } from './http-error';
 import { registerSession } from './plugins/session';
+import type { WorldServices } from './world/services';
 import { registerAttackRoutes } from './routes/attacks';
 import { registerAuthRoutes } from './routes/auth';
 import { registerClanRoutes } from './routes/clans';
+import { registerEventRoutes } from './routes/events';
 import type { Db } from './db/pool';
 import { registerCityRoutes } from './routes/cities';
 
@@ -17,6 +19,8 @@ export interface AppDeps {
   db: Db;
   /** Injectable pour tester le flow OAuth sans réseau. */
   fetchImpl?: typeof fetch;
+  /** État chaud du monde (Redis). Absent : l'API sert Postgres en lecture seule. */
+  world?: WorldServices;
 }
 
 /**
@@ -63,17 +67,19 @@ export async function buildApp(env: ServerEnv, deps: AppDeps): Promise<FastifyIn
           () => true,
           () => false,
         );
+        const redisUp = deps.world?.store.isUp() ?? false;
         return {
-          status: dbUp ? 'ok' : 'degraded',
+          status: dbUp && redisUp ? 'ok' : 'degraded',
           uptimeSeconds: Math.round(process.uptime()),
           version: VERSION,
-          services: { db: dbUp ? 'up' : 'down' },
+          services: { db: dbUp ? 'up' : 'down', redis: redisUp ? 'up' : 'down' },
         };
       });
-      registerCityRoutes(api, deps.db);
+      registerCityRoutes(api, deps.db, deps.world);
       registerAuthRoutes(api, { db: deps.db, env, fetchImpl: deps.fetchImpl ?? fetch });
-      registerClanRoutes(api, deps.db);
-      registerAttackRoutes(api, { db: deps.db, env });
+      registerClanRoutes(api, deps.db, deps.world);
+      registerEventRoutes(api, deps.world?.events);
+      registerAttackRoutes(api, { db: deps.db, env, world: deps.world });
       done();
     },
     { prefix: '/api' },

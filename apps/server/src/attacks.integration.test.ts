@@ -104,15 +104,13 @@ describe.skipIf(!url)('attaques et mini-jeux', () => {
       expect(body.durationMs).toBe(30_000);
     });
 
-    it('refuse d’attaquer une ville de sa propre faction, une ville inconnue, un jeu inconnu', async () => {
+    it('refuse une ville ou un jeu inconnu ; attaquer sa propre ville est permis (défense)', async () => {
       const p = await newPlayer('FR');
-      expect(
-        (await p.call('POST', '/attacks', { cityId: PARIS })).json<{ code: string }>().code,
-      ).toBe('own_city');
       expect((await p.call('POST', '/attacks', { cityId: 1 })).statusCode).toBe(404);
       expect(
         (await p.call('POST', '/attacks', { cityId: BERLIN, minigame: 'poker' })).statusCode,
       ).toBe(400);
+      expect((await p.call('POST', '/attacks', { cityId: PARIS })).statusCode).toBe(201);
     });
 
     it('cooldown entre deux parties (429) ; une partie ouverte est abandonnée au redémarrage', async () => {

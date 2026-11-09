@@ -1,5 +1,5 @@
-/** Identifiants des mini-jeux. Ajouter un jeu = ajouter un id ici + l'enregistrer dans `MINIGAMES`. */
-export const MINIGAME_IDS = ['reflex'] as const;
+/** Identifiants des mini-jeux. Ajouter un jeu = ajouter un id ici + l'enregistrer dans le registre du serveur. */
+export const MINIGAME_IDS = ['reflex', 'quiz', 'memory'] as const;
 export type MiniGameId = (typeof MINIGAME_IDS)[number];
 
 export interface ValidationResult {
@@ -38,6 +38,13 @@ export interface MiniGame<Params, Input> {
   parseInput(raw: unknown): Input;
   /** Rejoue l'entrée contre la graine et calcule le score. Ne lève jamais sur une entrée déjà parsée. */
   validate(seed: string, input: Input): ValidationResult;
+  /** Instant (ms) de la dernière action du joueur : un client ne peut pas dater une action dans le futur. */
+  lastInputTime(input: Input): number;
+  /**
+   * Vrai si la partie s'est terminée AVANT la durée nominale de façon légitime (toutes les questions répondues,
+   * erreur fatale à la mémoire…). Sans cela, une soumission anticipée serait rejetée comme « trop rapide ».
+   */
+  endsEarly?(seed: string, input: Input): boolean;
 }
 
 export type Rating = 'S' | 'A' | 'B' | 'C' | 'D';

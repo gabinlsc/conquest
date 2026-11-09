@@ -25,6 +25,8 @@ export function zScore(s: RunningStats, x: number, minSd = 0.05): number {
  */
 export const FLAG_WEIGHTS: Record<string, number> = {
   'soft:click_burst': 3,
+  'soft:tap_burst': 3,
+  'soft:perfect_run': 10,
   'soft:fast_average': 10,
   'soft:robotic_timing': 20,
   'soft:perfect_precision': 25,

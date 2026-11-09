@@ -10,6 +10,7 @@ import type {
   GameEvent,
   LeaderboardKind,
   LeaderboardResponse,
+  MiniGameId,
   MyRanks,
   PastSeason,
   SeasonInfo,
@@ -87,8 +88,8 @@ export const leaveClan = () => request<{ disbanded: boolean }>('POST', '/clans/l
 
 // ---------- Attaques ----------
 
-export const startAttack = (cityId: number) =>
-  request<AttackStartResponse>('POST', '/attacks', { cityId });
+export const startAttack = (cityId: number, minigame?: MiniGameId) =>
+  request<AttackStartResponse>('POST', '/attacks', { cityId, ...(minigame ? { minigame } : {}) });
 
 /** Envoie la preuve brute (actions du joueur), jamais un score. Idempotent côté serveur : on peut réessayer. */
 export const submitAttack = (attackId: string, input: unknown) =>

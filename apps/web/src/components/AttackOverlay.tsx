@@ -1,14 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AttackResult, AttackStartResponse, City, ReflexParams } from '@conquest/shared';
+import type {
+  AttackResult,
+  AttackStartResponse,
+  City,
+  MemoryParams,
+  MiniGameId,
+  QuizParams,
+  ReflexParams,
+} from '@conquest/shared';
+import { QUIZ } from '@conquest/shared';
 import { ApiError, startAttack, submitAttack } from '@/lib/api';
 import { sfx } from '@/lib/sound';
 import { Confetti } from './Confetti';
 import { Spark, Star } from './Decor';
+import { MemoryGame } from './MemoryGame';
+import { QuizGame } from './QuizGame';
 import { ReflexGame } from './ReflexGame';
 
+type Choice = MiniGameId | 'random';
+
 type Phase =
+  | { kind: 'choose' }
   | { kind: 'starting' }
   | { kind: 'playing'; attack: AttackStartResponse }
   | { kind: 'submitting' }
@@ -22,6 +36,29 @@ const RATING_COLOR: Record<AttackResult['rating'], string> = {
   C: 'bg-peach',
   D: 'bg-white',
 };
+
+const GAME_INFO: Record<MiniGameId, { emoji: string; title: string; text: string; color: string }> =
+  {
+    reflex: {
+      emoji: '⚡',
+      title: 'Réflexes',
+      text: 'Touche les cibles avant qu’elles disparaissent.',
+      color: 'bg-coral',
+    },
+    quiz: {
+      emoji: '🌍',
+      title: 'Quiz géo',
+      text: '10 questions éclair : pays, villes, capitales.',
+      color: 'bg-sky',
+    },
+    memory: {
+      emoji: '🧠',
+      title: 'Mémoire',
+      text: 'Reproduis la séquence, elle s’allonge à chaque manche.',
+      color: 'bg-mint',
+    },
+  };
+const GAME_ORDER: MiniGameId[] = ['reflex', 'quiz', 'memory'];
 
 function EffectLine({ result, cityName }: { result: AttackResult; cityName: string }) {
   const fx = result.effect;
@@ -58,6 +95,48 @@ function EffectLine({ result, cityName }: { result: AttackResult; cityName: stri
   );
 }
 
+/** Détail de la partie, propre à chaque épreuve (les statistiques viennent du serveur). */
+function GameStats({ result }: { result: AttackResult }) {
+  const s = result.stats;
+  if (result.minigame === 'quiz') {
+    const answered = QUIZ.questions - (s['unanswered'] ?? 0);
+    const mask = s['mask'] ?? 0;
+    return (
+      <>
+        <p className="mt-2 text-sm font-medium text-ink/70">
+          {s['correct']} bonnes réponses sur {QUIZ.questions} · réponse moyenne{' '}
+          {((s['avgAnswerMs'] ?? 0) / 1000).toFixed(1)} s
+        </p>
+        {/* Revue : une pastille par question (vert = juste, rouge = fausse, gris = sans réponse). */}
+        <div className="mt-2 flex justify-center gap-1" aria-label="Revue des réponses">
+          {Array.from({ length: QUIZ.questions }, (_, i) => (
+            <span
+              key={i}
+              className={`h-4 w-4 rounded-full border-2 border-ink ${
+                i >= answered ? 'bg-white' : mask & (1 << i) ? 'bg-mint' : 'bg-coral'
+              }`}
+            />
+          ))}
+        </div>
+      </>
+    );
+  }
+  if (result.minigame === 'memory') {
+    return (
+      <p className="mt-2 text-sm font-medium text-ink/70">
+        {s['rounds']} manche{(s['rounds'] ?? 0) > 1 ? 's' : ''} réussie
+        {(s['rounds'] ?? 0) > 1 ? 's' : ''} · séquence max {s['longest']} pastilles
+        {s['failed'] ? ' · une erreur a mis fin à la partie' : ''}
+      </p>
+    );
+  }
+  return (
+    <p className="mt-2 text-sm font-medium text-ink/70">
+      {s['hits']} cibles touchées · {s['misses']} ratés · réaction moyenne {s['avgReactionMs']} ms
+    </p>
+  );
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Envoi de la preuve avec reprises : l'endpoint est idempotent, réessayer ne peut pas créer de doublon. */
@@ -77,19 +156,24 @@ async function submitWithRetry(attackId: string, input: unknown): Promise<Attack
 }
 
 export function AttackOverlay({ city, onClose }: { city: City; onClose: () => void }) {
-  const [phase, setPhase] = useState<Phase>({ kind: 'starting' });
+  const [phase, setPhase] = useState<Phase>({ kind: 'choose' });
   const attackIdRef = useRef<string | null>(null);
-  const [round, setRound] = useState(0);
+  // Une « manche » = une partie : chaque choix d'épreuve incrémente le compteur et déclenche UN démarrage.
+  const [launch, setLaunch] = useState<{ n: number; choice: Choice } | null>(null);
 
-  // Une seule requête de démarrage par « manche », même si React rejoue l'effet (mode strict) :
+  // Une seule requête de démarrage par lancement, même si React rejoue l'effet (mode strict) :
   // une seconde requête serait refusée par le cooldown serveur et fabriquerait une partie fantôme.
-  const requestRef = useRef<{ round: number; promise: Promise<AttackStartResponse> } | null>(null);
+  const requestRef = useRef<{ n: number; promise: Promise<AttackStartResponse> } | null>(null);
 
   useEffect(() => {
+    if (!launch) return;
     let cancelled = false;
     setPhase({ kind: 'starting' });
-    if (requestRef.current?.round !== round) {
-      requestRef.current = { round, promise: startAttack(city.id) };
+    if (requestRef.current?.n !== launch.n) {
+      requestRef.current = {
+        n: launch.n,
+        promise: startAttack(city.id, launch.choice === 'random' ? undefined : launch.choice),
+      };
     }
     requestRef.current.promise.then(
       (attack) => {
@@ -108,7 +192,7 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
     return () => {
       cancelled = true;
     };
-  }, [city.id, round]);
+  }, [city.id, launch]);
 
   const finish = useCallback((input: unknown) => {
     const id = attackIdRef.current;
@@ -129,6 +213,8 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
     );
   }, []);
 
+  const choose = (choice: Choice) => setLaunch((l) => ({ n: (l?.n ?? 0) + 1, choice }));
+
   return (
     <div
       className="absolute inset-0 z-30 grid place-items-center overflow-y-auto bg-cream p-4"
@@ -142,22 +228,68 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
           Attaque sur <span className="hl">{city.name}</span>
         </h2>
 
+        {phase.kind === 'choose' && (
+          <div className="w-full space-y-3">
+            <p className="text-center text-sm font-bold">
+              Choisis ton épreuve : le score se transforme en influence.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {GAME_ORDER.map((g, i) => (
+                <button
+                  key={g}
+                  onClick={() => choose(g)}
+                  className={`card flex flex-col items-center gap-1 p-4 text-center transition hover:-translate-y-1 ${GAME_INFO[g].color} ${
+                    i === 0 ? '-rotate-1' : i === 1 ? 'rotate-1' : '-rotate-1'
+                  }`}
+                >
+                  <span className="text-4xl">{GAME_INFO[g].emoji}</span>
+                  <span className="font-display text-xl font-bold">{GAME_INFO[g].title}</span>
+                  <span className="text-xs font-medium leading-snug">{GAME_INFO[g].text}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-center gap-2">
+              <button onClick={() => choose('random')} className="btn btn-banana">
+                🎲 Au hasard
+              </button>
+              <button onClick={onClose} className="btn">
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+
         {phase.kind === 'starting' && (
           <p className="font-display text-xl font-bold">Préparation…</p>
         )}
 
-        {phase.kind === 'playing' && (
-          <ReflexGame
-            // key : une nouvelle partie remonte un composant neuf (état et horloge remis à zéro).
-            key={phase.attack.attackId}
-            params={phase.attack.params as ReflexParams}
-            onFinish={finish}
-            onAbort={onClose}
-          />
-        )}
+        {phase.kind === 'playing' &&
+          // key : une nouvelle partie remonte un composant neuf (état et horloge remis à zéro).
+          (phase.attack.minigame === 'quiz' ? (
+            <QuizGame
+              key={phase.attack.attackId}
+              params={phase.attack.params as QuizParams}
+              onFinish={finish}
+              onAbort={onClose}
+            />
+          ) : phase.attack.minigame === 'memory' ? (
+            <MemoryGame
+              key={phase.attack.attackId}
+              params={phase.attack.params as MemoryParams}
+              onFinish={finish}
+              onAbort={onClose}
+            />
+          ) : (
+            <ReflexGame
+              key={phase.attack.attackId}
+              params={phase.attack.params as ReflexParams}
+              onFinish={finish}
+              onAbort={onClose}
+            />
+          ))}
 
         {phase.kind === 'submitting' && (
-          <p className="text-slate-400">Validation par le serveur…</p>
+          <p className="font-display text-xl font-bold">Validation par le serveur…</p>
         )}
 
         {phase.kind === 'result' && (
@@ -173,17 +305,18 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
                   >
                     {phase.result.rating}
                   </p>
-                  <p className="mt-3 font-display text-4xl font-bold">
+                  <p className="mt-3 text-xs font-bold uppercase tracking-wide text-ink/60">
+                    {GAME_INFO[phase.result.minigame].emoji}{' '}
+                    {GAME_INFO[phase.result.minigame].title}
+                  </p>
+                  <p className="mt-2 font-display text-4xl font-bold">
                     {phase.result.score}
                     <span className="text-lg font-medium text-ink/50">
                       {' '}
                       / {phase.result.maxScore}
                     </span>
                   </p>
-                  <p className="mt-2 text-sm font-medium text-ink/70">
-                    {phase.result.stats['hits']} cibles touchées · {phase.result.stats['misses']}{' '}
-                    ratés · réaction moyenne {phase.result.stats['avgReactionMs']} ms
-                  </p>
+                  <GameStats result={phase.result} />
                   <EffectLine result={phase.result} cityName={city.name} />
                 </>
               ) : (
@@ -196,7 +329,10 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
                 </>
               )}
               <div className="mt-5 flex gap-2">
-                <button onClick={() => setRound((r) => r + 1)} className="btn btn-banana flex-1">
+                <button
+                  onClick={() => setPhase({ kind: 'choose' })}
+                  className="btn btn-banana flex-1"
+                >
                   Rejouer
                 </button>
                 <button onClick={onClose} className="btn flex-1">
@@ -211,7 +347,10 @@ export function AttackOverlay({ city, onClose }: { city: City; onClose: () => vo
           <div className="card w-full max-w-sm bg-white p-6 text-center">
             <p className="font-display text-xl font-bold">{phase.message}</p>
             <div className="mt-4 flex gap-2">
-              <button onClick={() => setRound((r) => r + 1)} className="btn btn-banana flex-1">
+              <button
+                onClick={() => setPhase({ kind: 'choose' })}
+                className="btn btn-banana flex-1"
+              >
                 Réessayer
               </button>
               <button onClick={onClose} className="btn flex-1">

@@ -231,4 +231,5 @@ export const reflexGame: MiniGame<ReflexParams, ReflexInput> = {
   generate,
   parseInput: (raw) => reflexInputSchema.parse(raw),
   validate,
+  lastInputTime: (input) => input.clicks.reduce((m, c) => Math.max(m, c.t), 0),
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRng } from './rng';
-import { MINIGAMES, TIMING, evaluateAttempt } from './index';
+import { SHARED_MINIGAMES, TIMING, evaluateAttempt } from './index';
 import { REFLEX_DURATION_MS, reflexGame, type ReflexInput } from './reflex';
 import { ratingFor } from './types';
 
@@ -163,7 +163,7 @@ describe('reflex.validate', () => {
 
 describe('evaluateAttempt (contrôles de temps réel)', () => {
   const seed = 'seed-timing';
-  const game = MINIGAMES.reflex;
+  const game = SHARED_MINIGAMES.reflex!;
   const input = { clicks: humanClicks(seed) };
   const last = Math.max(...input.clicks.map((c) => c.t));
 

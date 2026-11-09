@@ -1,18 +1,25 @@
 import { parseServerEnv } from '@conquest/shared';
 import { buildApp } from './app';
+import { createPool } from './db/pool';
+import { migrate } from './db/migrations';
 
 async function main(): Promise<void> {
   const env = parseServerEnv(process.env);
-  const app = await buildApp(env);
+  const pool = createPool(env.DATABASE_URL);
+  await migrate(pool, (m) => console.log(`[db] ${m}`));
+  const app = await buildApp(env, { db: pool });
 
   // Arrêt propre : Docker envoie SIGTERM, on laisse finir les requêtes en cours.
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       app.log.info({ signal }, 'arrêt demandé');
-      app.close().then(
-        () => process.exit(0),
-        () => process.exit(1),
-      );
+      app
+        .close()
+        .then(() => pool.end())
+        .then(
+          () => process.exit(0),
+          () => process.exit(1),
+        );
     });
   }
 

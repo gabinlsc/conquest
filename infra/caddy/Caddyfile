@@ -15,6 +15,10 @@
 		reverse_proxy web:3000
 	}
 
+	# Assets statiques lourds (frontières, polices, worker) : cache navigateur 7 jours.
+	@static path /geo/* /fonts/* /maplibre/*
+	header @static Cache-Control "public, max-age=604800"
+
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
